@@ -1,0 +1,14 @@
+#/bin/bash
+
+DEST=~/Documents/Projects/TRBo
+
+mkdir -p $DEST
+mkdir -p $DEST/src
+mkdir -p $DEST/vic
+mkdir -p $DEST/doc
+#cp $1.asm $DEST/src
+xa -o $DEST/src/trbo.obj $DEST/src/trbo.asm 
+printf "\x20\x10" | cat - $DEST/src/trbo.obj > $DEST/vic/trbo
+cp $DEST/vic/trbo /Volumes/VIC20/trbo
+diskutil unmount /Volumes/VIC20
+
