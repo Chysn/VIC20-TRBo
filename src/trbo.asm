@@ -1,4 +1,4 @@
-; TRBo: Turtle Rescue Bot
+; TRBo: Turtle RescueBot
 ; (c)2020, Jason Justian
 
 * = $1020
@@ -6,32 +6,49 @@
 ; System Resources
 ISR    = $0314          ; ISR vector
 SYSISR = $EABF          ; System ISR   
-VOICEH = $900C
-VOICEM = $900B
-VOICEL = $900A
-NOISE  = $900D  
-VOLUME = $900E
-BACKGD = $900F
+VICCR5 = $9005          ; Character map register
+VOICEH = $900C          ; High sound register
+VOICEM = $900B          ; Mid sound register
+VOICEL = $900A          ; Low sound register
+NOISE  = $900D          ; Noise register
+VOLUME = $900E          ; Sound volume register
+BACKGD = $900F          ; Background color
 BASRND = $E094          ; Routine for BASIC's RND() function
 SCPAGE = $0288          ; Screen location start
 RNDNUM = $8C            ; Result storage location for RND()
 VIA1DD = $9113          ; Data direction register for joystick
-VIA1PA = $9111
+VIA1PA = $9111          ; Joystick port (up, down, left, fire)
 VIA2DD = $9122          ; Data direction register for joystick
-VIA2PB = $9120
+VIA2PB = $9120          ; Joystick port (for right)
 CLSR   = $E55F          ; Clear screen
+PRTSTR = $CB1E          ; Print from data (Y,A)
+CHROM0 = $8000          ; Character ROM
+CHROM1 = $8100          ; Character ROM
 
 ; Constants
-SCRCOM = $08            ; Light yellow with black border
-SCRCOT = $3B            ; Cyan with cyan border
+SCRCOM = $3B            ; Cyan with cyan border
+SCRCOT = $18            ; white with black border
 SPEED  = $10            ; Game speed, in jiffies of delay
+CHRAM0 = $1C00          ; Custom Characters
+CHRAM1 = $1D00          ; Custom Characters
 
 ; Characters
-CH_PLR = $2A            ; Player character
 CH_SPC = $20            ; Space
-CH_LAD = $3D            ; Ladder
-CH_WAL = $A0            ; Wall
-CH_BLD = $2D            ; Building
+CH_TUR = $21            ; Turtle Right (!)
+CH_TUL = $22            ; Turtle Left (")
+CH_TUU = $23            ; Turtle Up (#)
+CH_PLR = $24            ; TRBo Right ($)
+CH_PLL = $25            ; TRBo Left (%)
+CH_PLU = $26            ; TRBo Up/Down (&)
+CH_PAR = $27            ; Patrol Right (')
+CH_PAL = $28            ; Patrol Left ( ( )
+CH_PAU = $29            ; Patrol Up/Down ( ) )
+CH_BEA = $2A            ; Beam (*)
+CH_LAD = $2B            ; Ladder (+)
+CH_TER = $2C            ; Location Terminal (,)
+CH_SPA = $2D            ; Spaceship (-)
+CH_CPY = $2E            ; Copyright (.)
+CH_WAL = $2F            ; Wall (/)
                   
 ; Music Player                  
 REG_L  = $033C          ; \ Storage for the shift register
@@ -58,11 +75,13 @@ PLR_L  = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; / Screen position (maze builder)
 CAND_L = $03            ; \ Candidate direction
 CAND_H = $04            ; /
+DATA_L = $09            ; \ Data pointer
+DATA_H = $0A            ; /
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MAIN PROGRAM
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INIT:   SEI
+INIT:   SEI             ; Install the custom ISR
         LDA #<CSTISR
         STA ISR
         LDA #>CSTISR
@@ -76,12 +95,14 @@ INIT:   SEI
         STA REG_H
         JSR M_STOP
         CLI
+        JSR CHRSET      ; Install the custom characters
         
 ; Initialize the maze        
-START:  JSR CLSR        ; Clear screen
-        JSR MAZE
-        LDA #SCRCOM
+START:  LDA #$00        ; Make the screen black during init
         STA BACKGD
+        JSR CLSR        ; Clear screen
+        JSR MAZE        ; Draw Maze
+        JSR SCRSET      ; Setup various screen stuff
         LDA #$58        ; Position the player at the top
         STA PLR_L       ;   of the maze.
         LDA SCPAGE
@@ -95,9 +116,11 @@ L0:     STA SCOR_L,Y
         DEY
         BPL L0
         JSR M_PLAY      ; Start the music
-        LDY #$00
-        LDA #CH_PLR
-        STA (PLR_L),Y   ; Place the player
+        LDA PLR_L
+        LDY PLR_H
+        LDX #CH_PLR
+        SEC
+        JSR PLACE       ; Place and color player
         LDA #CH_SPC
         STA UNDER       ; Start with a space under player
 
@@ -139,9 +162,13 @@ ENDISR: DEC FRCD
 ;;;; GAME PLAY SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; PL_MV - Move the player, based on the joystick position
-PL_MV:  LDA JOYDIR
-        BEQ MV_RTS      ; Do nothing if no direction set
-        LDA PLR_L       ; Set the candidate direction
+PL_MV:  LDY #$00
+        LDA (PLR_L),Y
+        TAX             ; Set current player character
+        LDA JOYDIR
+        BNE SETC        ; Do nothing if no direction set
+        RTS
+SETC:   LDA PLR_L       ; Set the candidate direction
         STA CAND_L
         LDA PLR_H
         STA CAND_H
@@ -152,21 +179,33 @@ JY_U:   LDA #$04        ; Handle up
         CMP #CH_LAD     ;   a ladder
         BNE JY_R
         JSR MVCD_U      ; Move candidate up
+        LDX #CH_PLU
         JMP JY_F
 JY_R:   LDA #$80        ; Handle right
         BIT JOYDIR
         BEQ JY_D
         JSR MVCD_R      ; Move candidate right
+        LDX #CH_PLR
         JMP JY_F
 JY_D:   LDA #$08        ; Handle down
         BIT JOYDIR
         BEQ JY_L
         JSR MVCD_D      ; Move candidate down
+        LDX #CH_PLU
         JMP JY_F
 JY_L:   LDA #$10        ; Handle left
         BIT JOYDIR
         BEQ JY_F
         JSR MVCD_L      ; Move candidate left
+        LDX #CH_PLL
+        LDA CAND_H      ; If the candidate is off the left
+        CMP SCPAGE      ;   side of the screen, then
+        BNE JY_F        ;   restore the candidate back
+        LDA CAND_L      ;   to the curent player
+        CMP #$57        ;   coordinates
+        BNE JY_F
+        LDA PLR_L
+        STA CAND_L
 JY_F:   LDA #$20        ; Handle fire
         BIT JOYDIR
         BEQ DOMOVE:
@@ -174,17 +213,26 @@ JY_F:   LDA #$20        ; Handle fire
         
 DOMOVE: JSR ISOPEN      ; Is the candidate space open?
         BEQ MV_RTS      ;   If not, don't move
+        TXA
+        PHA             ; Save the player character
+        LDX UNDER       ; Restore the previous character
+        LDA PLR_L       ; Prepare for PLACE
+        LDY PLR_H
+        SEC
+        JSR PLACE
         LDY #$00
-        LDA UNDER       ; Restore the previous character
-        STA (PLR_L),Y
         LDA (CAND_L),Y  ; Get the current character at candidate
         STA UNDER       ;   and save it for when we move away
-        LDA #CH_PLR
-        STA (CAND_L),Y  ; Moved character
+        PLA
+        TAX             ; Prepare for PLACE
+        LDA CAND_L
+        LDY CAND_H
+        SEC
+        JSR PLACE
         LDA CAND_L      ; Update player position
         STA PLR_L
-        LDA CAND_H
-        STA PLR_H
+        LDY CAND_H
+        STY PLR_H
 MV_RTS: RTS
         
 NPC_MV: RTS
@@ -253,6 +301,53 @@ ISOPEN: LDY #$00
         LDA #CH_WAL
         CMP (CAND_L),Y
         RTS
+        
+; PLACE - Place the character on the screen at the specified
+; address.
+;
+; Preparations
+;     A - Low byte of the screen address
+;     Y - High byte of the screen address
+;     X - Character to place
+;     Carry flag - Color if set, hidden if unset
+PLACE:  STA DATA_L
+        STY DATA_H
+        TXA
+        LDY #$00
+        STA (DATA_L),Y
+        LDA DATA_L
+        LDY DATA_H      ; Falls through to COLOR
+        
+; COLOR - Set the color for the specified screen address. The
+; screen address is converted to the color character address
+; automatically.
+;
+; Preparations
+;     A - Low byte of screen address
+;     Y - High byte of screen addess
+;     Carry flag - Color if set, hidden if unset
+COLOR:  STA DATA_L
+        STY DATA_H
+        PHA
+        PHP
+        LDY #$00
+        LDA (DATA_L),Y  ; Character at the specified address
+        SEC
+        SBC #$20        ; Get a color table index
+        TAX             ;   and store it in X for later
+        LDA DATA_H      ; Subtract the starting page of screen
+        SEC             ;   memory from the specified page to
+        SBC SCPAGE      ;   get the screen page offset
+        CLC
+        ADC #$96        ; Add that offset to color memory so
+        STA DATA_H      ;   data now points to color location
+        PLP
+        BCS SETCOL      ; If carry flag is clear, set index to 0
+        LDX #$00        ;   to use the space's color in the map
+SETCOL: LDA COLMAP,X    ; Get the color for this character
+        STA (DATA_L),Y  ; Set the color of the character
+        PLA
+        RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MUSIC PLAYER SUBROUTINES
@@ -284,17 +379,20 @@ ROLL    TXA
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; MAZE - Generate and display an 10x9 maze with the Sidewinder 
 ; algorithm. The maze is 8x8, but takes up a 16x16 on the screen
-MAZE:   LDA #$6D        ; Fill the screen with walls, which
+MAZE:   LDA #$6E       ; Fill the screen with walls, which
         STA SPOS_L      ;   will be removed to make the
         LDA SCPAGE      ;   maze.
         STA SPOS_H
-        LDA #CH_WAL
-        LDY #$FF
-L1:     STA (SPOS_L),Y
+        LDY #$00
+L1:     LDA #CH_WAL
+        STA (SPOS_L),Y
         INC SPOS_H
         STA (SPOS_L),Y
         DEC SPOS_H
-        DEY
+        LDA #$00        ; Set the maze to black
+        STA $9600,Y
+        STA $9700,Y
+        INY
         BNE L1
         LDA #$58        ; Offset for the maze
         STA SPOS_L
@@ -401,7 +499,7 @@ RESET:  PLA             ; Start restoring things for return
         STA SPOS_L
         RTS   
 
-; RAND - Get a random number between 1 and 8. A contains the
+; RAND - Get a random number between 1 and 16. A contains the
 ; maximum value. The random number will be in Y.
 RAND:   STA SCRPAD
         DEC SCRPAD      ; Behind the scenes, look for a number
@@ -409,7 +507,7 @@ RAND:   STA SCRPAD
                         ;   below, which compensates
         JSR BASRND
         LDA RNDNUM
-        AND #$07
+        AND #$0F
         CMP SCRPAD
         BCC E_RAND      ; Get another random number if this one
         BEQ E_RAND      ; is greater than the maximum
@@ -420,7 +518,74 @@ E_RAND: TAY
         INY
         RTS
         
+        
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; SETUP SUBROUTINES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; CHRSET - Set up custom character assets
+CHRSET: LDX #$00        ; Copy character ROM to RAM
+CL0:    LDA CHROM0,X
+        STA CHRAM0,X
+        LDA CHROM1,X
+        STA CHRAM1,X
+        INX
+        BNE CL0
+CL1:    LDA CCHSET,X
+        STA CHRAM1+8,X
+        INX
+        CPX #$C8
+        BNE CL1
+        LDA #$FF        ; Switch over character map
+        STA VICCR5
+        RTS        
+
+; SCRSET - Set up screen
+SCRSET: LDA #SCRCOM     ; Set background color
+        STA BACKGD
+        LDA #<INTRO     ; Show the intro screen
+        LDY #>INTRO
+        JSR PRTSTR
+        LDX #CH_SPA     ; Place the spaceship (goal)
+        LDA #$6D
+        LDY SCPAGE
+        SEC
+        JSR PLACE
+        RTS 
+                
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+INTRO:  .byte "TRBO: TURTLE RESCUEBOT"
+        .byte "   . JASON JUSTIAN",$0d
+        .byte "!   FIRE TO START    %",$00
 
+; Custom character set        
+CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
+        .byte $00,$00,$0c,$de,$de,$3f,$12,$36 ; TurtleL
+        .byte $00,$18,$5a,$42,$3c,$3c,$5a,$81 ; TurtleUp/Down
+        .byte $0f,$0d,$07,$3c,$42,$99,$3c,$18 ; RobotR
+        .byte $f0,$b0,$e0,$3c,$42,$99,$3c,$18 ; RobotL
+        .byte $3c,$3c,$18,$3c,$42,$bd,$24,$24 ; RobotUp/Down
+        .byte $00,$3c,$37,$3c,$3c,$00,$66,$66 ; PatrolR
+        .byte $00,$3c,$ec,$3c,$3c,$00,$66,$66 ; PatrolL
+        .byte $00,$18,$18,$3c,$7e,$00,$24,$24 ; PatrolUp/Down
+        .byte $00,$00,$44,$aa,$11,$00,$00,$00 ; Beam
+        .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
+        .byte $3c,$24,$3c,$00,$3c,$7e,$18,$3c ; LocationTerminal
+        .byte $00,$18,$3c,$db,$7e,$18,$24,$42 ; Spaceship
+        .byte $3c,$42,$99,$a1,$a1,$99,$42,$3c ; Copyright
+        .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff ; Wall
+        .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
+        .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
+        .byte $7f,$03,$03,$7f,$40,$40,$7f,$00 ; 2
+        .byte $7f,$01,$01,$7f,$03,$03,$7f,$00 ; 3
+        .byte $43,$43,$43,$7f,$01,$01,$01,$00 ; 4
+        .byte $7f,$40,$40,$7f,$03,$03,$7f,$00 ; 5
+        .byte $7f,$40,$40,$7f,$61,$61,$7f,$00 ; 6
+        .byte $7f,$03,$03,$03,$01,$01,$01,$00 ; 7
+        .byte $7f,$41,$41,$7f,$43,$43,$7f,$00 ; 8
+        .byte $7f,$43,$43,$7f,$01,$01,$01,$00 ; 9
+
+; Color map for the above characters, indexed from 0
+COLMAP: .byte $00,$05,$05,$05,$06,$06,$06,$04
+        .byte $04,$04,$07,$00,$02,$04
