@@ -1,8 +1,19 @@
 ; TRBo: Turtle RescueBot
 ; (c)2020, Jason Justian
 
-* = $1020
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; BASIC LAUNCHER
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; This is a tokenization of the following BASIC program, which
+; runs the game:
+;     1 SYS4110
+* = $1001
+LAUNCH: .byte $0b,$04,$01,$00,$9e,$34,$31,$31
+        .byte $30,$00,$00,$00,$00
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; LABEL DEFINITIONS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; System Resources
 ISR    = $0314          ; ISR vector
 SYSISR = $EABF          ; System ISR   
@@ -20,14 +31,21 @@ VIA1DD = $9113          ; Data direction register for joystick
 VIA1PA = $9111          ; Joystick port (up, down, left, fire)
 VIA2DD = $9122          ; Data direction register for joystick
 VIA2PB = $9120          ; Joystick port (for right)
-CLSR   = $E55F          ; Clear screen
+CLSR   = $E55F          ; Clear screen/home
+HOME   = $E581          ; Home cursor
+COLOR  = $0286          ; Text color
 PRTSTR = $CB1E          ; Print from data (Y,A)
 CHROM0 = $8000          ; Character ROM
 CHROM1 = $8100          ; Character ROM
+CASECT = $0291          ; Disable Commodore case
+PRTFIX = $DDCD          ; Decimal display routine
 
 ; Constants
-SCRCOM = $3B            ; Cyan with cyan border
-SCRCOT = $18            ; white with black border
+SCRCOM = $08            ; Maze color
+SCRCOT = $3B            ; Top color
+TXTCOL = $06            ; Text color
+WALCOL = $01            ; Wall color
+
 SPEED  = $10            ; Game speed, in jiffies of delay
 CHRAM0 = $1C00          ; Custom Characters
 CHRAM1 = $1D00          ; Custom Characters
@@ -61,68 +79,49 @@ PLAY   = $0340          ; Music is playing
 SPOS_L = $01            ; \ Screen position (maze builder)
 SPOS_H = $02            ; / Player screen position (play)
 FRCD   = $05            ; Frame countdown
-SCRPAD = $06            ; Scratchpad for a function
 REMAIN = $0344          ; Remaining cells for the current level
 
 ; Game Play
+GLEVEL = $0345          ; Game level
 SCOR_L = $0346          ; \ Player score
 SCOR_H = $0347          ; /
-GLEVEL = $0348          ; Game level
-UNDER  = $0349          ; Character underneath player
-INVEN  = $034A          ; Inventory
-JOYDIR = $034B          ; Joystick direction capture
+UNDER  = $0348          ; Character underneath player
+JOYDIR = $0349          ; Joystick direction capture
+DIRBLK = $034A          ; Directional block
 PLR_L  = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; / Screen position (maze builder)
 CAND_L = $03            ; \ Candidate direction
 CAND_H = $04            ; /
-DATA_L = $09            ; \ Data pointer
+
+; General use registers - Any function may use these, but no
+; function may assume that they're safe from other functions
+SCRPAD = $06            ; Scratchpad for a function
+DATA_L = $09            ; \ General data pointer
 DATA_H = $0A            ; /
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MAIN PROGRAM
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INIT:   SEI             ; Install the custom ISR
-        LDA #<CSTISR
-        STA ISR
-        LDA #>CSTISR
-        STA ISR+1
-        LDA #$08
-        STA TEMPO
-        STA MUCD 
-        LDA #$32
-        STA REG_L
-        LDA #$23
-        STA REG_H
-        JSR M_STOP
-        CLI
+; Initialize the game system      
+INIT:   JSR SETHW       ; Set up hardware features
         JSR CHRSET      ; Install the custom characters
         
-; Initialize the maze        
-START:  LDA #$00        ; Make the screen black during init
-        STA BACKGD
-        JSR CLSR        ; Clear screen
+; Intro Screen
+GMOVER: JSR CLSR        ; Clear screen
         JSR MAZE        ; Draw Maze
-        JSR SCRSET      ; Setup various screen stuff
-        LDA #$58        ; Position the player at the top
-        STA PLR_L       ;   of the maze.
-        LDA SCPAGE
-        STA PLR_H
-        LDA #$7F        ; Set DDR to read East
-        STA VIA2DD
+        JSR WELCOM      ; Show intro screen
+WAIT:   JSR READJS
+        AND #$20        ; Wait for the fire button
+        BEQ WAIT
 
 ; Initialize score and game locations
-CLEAR:  LDY #$04
-L0:     STA SCOR_L,Y
-        DEY
-        BPL L0
-        JSR M_PLAY      ; Start the music
-        LDA PLR_L
-        LDY PLR_H
-        LDX #CH_PLR
-        SEC
-        JSR PLACE       ; Place and color player
-        LDA #CH_SPC
-        STA UNDER       ; Start with a space under player
+STGAME: LDA #$00
+        STA SCOR_L
+        STA SCOR_H
+        STA GLEVEL 
+
+; Start a new level
+STLEV:  JSR INITLV
 
 ; Main loop
 MAIN:   LDA #$00        ; Reset joystick
@@ -179,24 +178,32 @@ JY_U:   LDA #$04        ; Handle up
         CMP #CH_LAD     ;   a ladder
         BNE JY_R
         JSR MVCD_U      ; Move candidate up
+        LDA #$01
+        STA DIRBLK
         LDX #CH_PLU
         JMP JY_F
 JY_R:   LDA #$80        ; Handle right
         BIT JOYDIR
         BEQ JY_D
         JSR MVCD_R      ; Move candidate right
+        LDA #$02
+        STA DIRBLK
         LDX #CH_PLR
         JMP JY_F
 JY_D:   LDA #$08        ; Handle down
         BIT JOYDIR
         BEQ JY_L
         JSR MVCD_D      ; Move candidate down
+        LDA #$04
+        STA DIRBLK
         LDX #CH_PLU
         JMP JY_F
 JY_L:   LDA #$10        ; Handle left
         BIT JOYDIR
         BEQ JY_F
         JSR MVCD_L      ; Move candidate left
+        LDA #$08
+        STA DIRBLK
         LDX #CH_PLL
         LDA CAND_H      ; If the candidate is off the left
         CMP SCPAGE      ;   side of the screen, then
@@ -229,16 +236,111 @@ DOMOVE: JSR ISOPEN      ; Is the candidate space open?
         LDY CAND_H
         SEC
         JSR PLACE
+        LDA PLR_L       ; Move current player position to data
+        STA DATA_L      ;   so that we can look around for
+        LDA PLR_H       ;   turtles.
+        STA DATA_H
         LDA CAND_L      ; Update player position
         STA PLR_L
-        LDY CAND_H
-        STY PLR_H
+        LDA CAND_H
+        STA PLR_H
+        LDA DATA_L      ; Move previous player position into
+        STA CAND_L      ;   the candidate for use with the
+        LDA DATA_H      ;   turtle chain.
+        STA CAND_H
+        JSR TURCHN      ; Find turtles for a turtle chain
 MV_RTS: RTS
-        
+       
+; NPC_MV - Move non-player characters (turtles and patrols)        
 NPC_MV: RTS
 
+; TURCHN - Turtle chain! look around the position in candidate
+; a turtle. If there's a turtle there, move it, then
+; recursively call TURCHR to keep the chain going.
+TURCHN: LDA CAND_L      ; DATA will contain the original
+        STA DATA_L      ;   position, while the candidate
+        LDA CAND_H      ;   may be moved.
+        STA DATA_H
+        LDY DIRBLK      ; Get the directional block, to avoid
+                        ;   looking in the direction from which
+                        ;   we came.
+LOOK_U: CPY #$01
+        BEQ LOOK_R      ; Direction is blocked; look right
+        JSR MVCD_U
+        JSR CH4TUR      ; Check for a turtle above
+        BCC LOOK_R
+        LDA #$04
+        STA DIRBLK
+        LDX #CH_TUU     ; Pulling turtle from above, so use
+                        ;   the turtle on a ladder
+        BNE MOVETU
+LOOK_R: CPY #$02
+        BEQ LOOK_D
+        JSR RSCAND
+        JSR MVCD_R
+        JSR CH4TUR
+        BCC LOOK_D
+        LDA #$08
+        STA DIRBLK
+        LDX #CH_TUL     ; Pulling a turtle from the right, so
+                        ;   use the left-facing turtle
+        BNE MOVETU
+LOOK_D: CPY #$04
+        BEQ LOOK_L
+        JSR RSCAND
+        JSR MVCD_D
+        JSR CH4TUR
+        BCC LOOK_L
+        LDA #$01
+        STA DIRBLK
+        LDX #CH_TUU     ; Pulling a turtle from below, so
+                        ;   use the turtle on a ladder
+        BNE MOVETU
+LOOK_L: CPY #$08
+        BEQ CHN_R
+        JSR RSCAND
+        JSR MVCD_L
+        JSR CH4TUR
+        BCC CHN_R
+        LDA #$02
+        STA DIRBLK
+        LDX #CH_TUR     ; Pulling a turtle from the left, so
+                        ;   use the right-facing turtle
+                        
+; To move a turtle in the chain, a turtle will be placed in
+; the CANDIDATE location, with the movement graphic, as set
+; above in X. Then, the current position (DATA) needs to be 
+; cleared out. It'll be cleared with either a space, or a 
+; ladder, depending on the current graphic at the DATA 
+; location.  Then, recursively call TURCH to continue the
+; chain.
+MOVETU: LDY #$00
+        LDA (DATA_L),Y  ; What's there now?
+        PHA
+        LDA DATA_L      ; Place the turtle in the DATA position
+        LDY DATA_H      ; ...
+        SEC             ; ...
+        JSR PLACE       ; ...
+        LDX #$20        ; Default to replacing with space
+        PLA
+        CMP #CH_TUU     ; But if the turtle is coming off a
+        BNE OPENCH      ;   ladder, replace with a ladder
+        LDX #CH_LAD
+OPENCH: LDA CAND_L      ; Place the space or ladder
+        LDY CAND_H      ; ...
+        SEC             ; ...
+        JSR PLACE       ; ...
+        JMP TURCHN
+CHN_R:  RTS
+        
+; MV_TUR - Move a turtle at the DATA register. Turtles don't
+; usually move. A turtle will only move if doing so would put
+; it next to the player, or to another turtle.
+MV_TUR:  
+
 ; READJS - Read the joystick, if it has not yet been read,
-; and store a combined direction register in JOYDIR
+; and store a combined direction register in JOYDIR, and
+; return the same in A
 READJS: LDA VIA1PA      ; Read VIA1 port
         AND #$3C        ; Keep track of bits 2,3,4,5
         STA SCRPAD
@@ -302,6 +404,24 @@ ISOPEN: LDY #$00
         CMP (CAND_L),Y
         RTS
         
+; CH4TUR - Check for turtle at candidate position. Set carry
+; flag if there's a turtle there.
+CH4TUR: TYA
+        PHA
+        SEC
+        LDY #$00
+        LDA (CAND_L),Y
+        CMP #CH_TUR
+        BEQ TUR_OK
+        CMP #CH_TUL
+        BEQ TUR_OK
+        CMP #CH_TUU
+        BEQ TUR_OK
+        CLC
+TUR_OK: PLA
+        TYA
+        RTS        
+        
 ; PLACE - Place the character on the screen at the specified
 ; address.
 ;
@@ -316,9 +436,9 @@ PLACE:  STA DATA_L
         LDY #$00
         STA (DATA_L),Y
         LDA DATA_L
-        LDY DATA_H      ; Falls through to COLOR
+        LDY DATA_H      ; Falls through to CHRCOL
         
-; COLOR - Set the color for the specified screen address. The
+; CHRCOL - Set the color for the specified screen address. The
 ; screen address is converted to the color character address
 ; automatically.
 ;
@@ -326,8 +446,10 @@ PLACE:  STA DATA_L
 ;     A - Low byte of screen address
 ;     Y - High byte of screen addess
 ;     Carry flag - Color if set, hidden if unset
-COLOR:  STA DATA_L
+CHRCOL: STA DATA_L
         STY DATA_H
+        PHA
+        TXA
         PHA
         PHP
         LDY #$00
@@ -347,6 +469,30 @@ COLOR:  STA DATA_L
 SETCOL: LDA COLMAP,X    ; Get the color for this character
         STA (DATA_L),Y  ; Set the color of the character
         PLA
+        TAX
+        PLA
+        RTS
+        
+; USCORE - Update the score and draw it on the screen
+;
+; Preparations
+;     A is the amount to add to the current score
+USCORE: CLC
+        ADC SCOR_L
+        STA SCOR_L
+        BCC SCDRAW
+        INC SCOR_H
+SCDRAW: JSR HOME
+        LDX SCOR_L
+        LDA SCOR_H
+        JSR PRTFIX
+        RTS
+       
+; RSCAND - Reset candidate from DATA pointer 
+RSCAND: LDA DATA_L
+        STA CAND_L
+        LDA DATA_H
+        STA DATA_H
         RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -379,7 +525,7 @@ ROLL    TXA
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; MAZE - Generate and display an 10x9 maze with the Sidewinder 
 ; algorithm. The maze is 8x8, but takes up a 16x16 on the screen
-MAZE:   LDA #$6E       ; Fill the screen with walls, which
+MAZE:   LDA #$6E        ; Fill the screen with walls, which
         STA SPOS_L      ;   will be removed to make the
         LDA SCPAGE      ;   maze.
         STA SPOS_H
@@ -389,7 +535,7 @@ L1:     LDA #CH_WAL
         INC SPOS_H
         STA (SPOS_L),Y
         DEC SPOS_H
-        LDA #$00        ; Set the maze to black
+        LDA #WALCOL     ; Set the maze to wall color
         STA $9600,Y
         STA $9700,Y
         INY
@@ -427,7 +573,7 @@ DRLEV:  CPX #$00
 F_COR:  LDA #$0A        ; Initialize the current level
         TAY             ; Default level length
 NX_COR: STA REMAIN      ; Start a new corridor
-        CPX #$00        ; Level 0 has a special case; it always
+        CPX #$00        ; Level 0 is a special case; it always
         BEQ DRAW        ;   has a single full-length corridor
         JSR RAND        ; Y = Length of the next corridor
 DRAW:   JSR DRCORR      ; Draw the corridor
@@ -537,27 +683,149 @@ CL1:    LDA CCHSET,X
         BNE CL1
         LDA #$FF        ; Switch over character map
         STA VICCR5
-        RTS        
-
-; SCRSET - Set up screen
-SCRSET: LDA #SCRCOM     ; Set background color
+        RTS
+        
+; WELCOM - Set up welcome screen
+WELCOM: LDA #SCRCOM     ; Set background color
         STA BACKGD
         LDA #<INTRO     ; Show the intro screen
         LDY #>INTRO
         JSR PRTSTR
-        LDX #CH_SPA     ; Place the spaceship (goal)
+        RTS      
+
+; INITLV - Set up screen
+INITLV: JSR CLSR
+        JSR MAZE
+        LDX #CH_SPA     ; Prepare to place spaceship
         LDA #$6D
         LDY SCPAGE
         SEC
-        JSR PLACE
+        JSR PLACE       ; Place the spaceship (goal)
+        LDA #$58        ; Position the player at the top
+        STA PLR_L       ;   of the maze.
+        LDY SCPAGE
+        STY PLR_H
+        LDX #CH_PLR
+        SEC
+        JSR PLACE       ; Place and color player
+        LDA #CH_SPC
+        STA UNDER       ; Start with a space under player
+        LDY #$01        ; Populate the location terminal
+        LDX #CH_TER     ; ...
+        JSR POPULA      ; ...
+        LDY #$0A        ; Populate some turtles
+        LDX #CH_TUR     ; ...
+        JSR POPULA      ; ...
+        LDA GLEVEL      ; Populate some patrols
+        TAY             ; ...
+        INY             ; ...
+        LDX #CH_PAL     ; ...
+        JSR POPULA      ; ...
+        LDA #$08
+        STA TEMPO       ; Set the music tempo
+        STA MUCD
+        LDA GLEVEL
+        ASL             ; Multiply level by 2 for score index
+        TAX
+        LDA SCORES,X    ; Set the musical score
+        STA REG_L
+        LDA SCORES+1,X
+        STA REG_H
+        LDA #$00
+        JSR USCORE      ; Display current score
+        JSR M_PLAY      ; Start the music
         RTS 
-                
+
+; SETHW - Some hardware setup. This only needs to be done
+; once.
+SETHW:  LDA #$08        ; Make the screen black during init
+        STA BACKGD
+        LDA #$7F        ; Set DDR to read East
+        STA VIA2DD
+        LDA CASECT      ; Disable Commodore-Shift
+        ORA #$80
+        STA CASECT
+        JSR M_STOP      ; Turn off music playing
+        LDA #TXTCOL
+        STA COLOR
+        SEI             ; Install the custom ISR
+        LDA #<CSTISR
+        STA ISR
+        LDA #>CSTISR
+        STA ISR+1
+        CLI
+        RTS
+
+; POPULA - Populate the maze with some characters
+;
+; Preparations
+;     X is the character
+;     Y is the number of that character to put in the maze        
+POPULA: TYA
+        PHA
+        TXA
+        PHA
+        LDA #$27
+        STA DATA_L
+        LDA SCPAGE
+        STA DATA_H
+        CPX #CH_TER     ; If the character is a computer
+        BNE RNDY        ;   terminal, its Y position is not
+        LDY GLEVEL      ;   random, but based on the current
+        INY             ;   level
+        CPY #$08
+        BCC PL1
+        LDY #$08
+        BCS PL1
+RNDY:   LDA #$08        ; Get a random Y-axis
+        JSR RAND
+PL1:    LDA #$2C        ; Drop down that number of lines
+        CLC             ;   in the maze
+        ADC DATA_L
+        STA DATA_L
+        BCC RY
+        INC DATA_H
+RY:     DEY
+        BPL PL1
+        LDA #$0A        ; Get a random X-axis
+        JSR RAND
+PL2:    LDA #$02        ; Move over that number of columns
+        CLC             ;   in the maze
+        ADC DATA_L
+        STA DATA_L
+        BCC RX
+        INC DATA_H
+RX:     DEY
+        BPL PL2
+        LDY #$00
+        LDA (DATA_L),Y
+        CMP #$20        ; Is the randomly-determined space
+        BEQ PLCNEW      ;   occupied already?
+        PLA
+        TAX
+        PLA
+        TAY
+        JMP POPULA      ; If so, then retry
+PLCNEW  PLA
+        TAX
+        LDA DATA_L
+        LDY DATA_H
+        CLC             ; Hide all the populated objects
+        JSR PLACE       ; Place the character in X, and
+        PLA             ; Decrement the character number
+        TAY             ;   counter. 
+        DEY             ; Any more characters to place?
+        BNE POPULA
+        RTS
+        
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INTRO:  .byte "TRBO: TURTLE RESCUEBOT"
-        .byte "   . JASON JUSTIAN",$0d
-        .byte "!   FIRE TO START    %",$00
+INTRO:  .asc "TRBO: TURTLE RESCUEBOT"
+        .asc "   . JASON JUSTIAN",$0d
+        .asc "!   FIRE TO START    %",$00
+        
+ENDTXT: .asc "GAME OVER",$00
 
 ; Custom character set        
 CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
@@ -586,6 +854,19 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $7f,$41,$41,$7f,$43,$43,$7f,$00 ; 8
         .byte $7f,$43,$43,$7f,$01,$01,$01,$00 ; 9
 
-; Color map for the above characters, indexed from 0
+; Color map for the above characters, indexed from SPACE
 COLMAP: .byte $00,$05,$05,$05,$06,$06,$06,$04
-        .byte $04,$04,$07,$00,$02,$04
+        .byte $04,$04,$07,$01,$02,$01
+
+; Curated musical scores for the shift register player     
+SCORES: .byte $32,$23
+        .byte $12,$54
+        .byte $d2,$2b
+        .byte $ff,$2f
+        .byte $54,$56
+        .byte $18,$1f
+        .byte $b3,$2a
+        .byte $c6,$78
+        .byte $54,$53
+        .byte $19,$84
+        .byte $19,$29
