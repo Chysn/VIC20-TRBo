@@ -1,6 +1,5 @@
 ; TRBo: Turtle RescueBot
 ; (c)2020, Jason Justian
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; BASIC LAUNCHER
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -45,10 +44,15 @@ SCRCOM = $08            ; Maze color
 SCRCOT = $3B            ; Top color
 TXTCOL = $06            ; Text color
 WALCOL = $01            ; Wall color
-
 SPEED  = $10            ; Game speed, in jiffies of delay
 CHRAM0 = $1C00          ; Custom Characters
 CHRAM1 = $1D00          ; Custom Characters
+
+; Sound Effects Library
+SD_F   = $00            ; Fire button sound
+SD_REC = $01            ; Rescue sound
+SD_ACT = $02            ; Computer terminal activated
+SD_LEV = $03            ; Entering a new level
 
 ; Characters
 CH_SPC = $20            ; Space
@@ -68,11 +72,17 @@ CH_CPY = $2E            ; Copyright (period)
 CH_WAL = $2F            ; Wall (slash)
                   
 ; Music Player                  
-REG_L  = $033C          ; \ Storage for the shift register
+REG_L  = $033C          ; \ Music shift register
 REG_H  = $033D          ; /
 TEMPO  = $033E          ; Tempo (lower numbers are faster)
 MUCD   = $033F          ; Tempo countdown
 PLAY   = $0340          ; Music is playing
+
+; Sound Effects Player
+REG_FX = $034E          ; Sound effects register
+FXLEN  = $034F          ; Sound effects length
+FXCD   = $0350          ; Sound effects countdown
+FXCDRS = $0351          ; Countdown reset value
 
 ; Maze Builder
 SPOS_L = $01            ; \ Screen position (maze builder)
@@ -90,7 +100,6 @@ DIRBLK = $034A          ; Directional block
 TURTLS = $034B          ; Turtle count for the level
 PATRLS = $034C          ; Patrol count for the level
 UNFOLL = $034D          ; Unfollow if fire is pressed
-
 PLR_L  = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; / Screen position (maze builder)
 CAND_L = $03            ; \ Candidate direction
@@ -149,19 +158,8 @@ LVLUP:  INC GLEVEL
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; CSTISR - The Interrupt Service Routine. Based on the tempo,
 ; get the next note and play it. Decrement the frame countdown.
-CSTISR: LDA #$01
-        BIT PLAY
-        BEQ ENDISR
-        DEC MUCD 
-        BNE ENDISR
-        LDA TEMPO
-        STA MUCD 
-        JSR NXNOTE
-        LDA REG_H
-        ORA #$80
-        STA VOICEM
-        LDA REG_L       ; This will set the volume and flash
-        STA VOLUME      ;   the windows of the spaceship
+CSTISR: JSR NXNOTE
+        JSR NXFX
 ENDISR: DEC FRCD
         JMP SYSISR        
         
@@ -171,6 +169,7 @@ ENDISR: DEC FRCD
 ; PL_MV - Move the player, based on the joystick position
 PL_MV:  LDY #$00
         STY UNFOLL
+        STY DIRBLK
         LDA (PLR_L),Y
         TAX             ; Set current player character
         LDA JOYDIR
@@ -232,6 +231,10 @@ JY_F:   LDA #$20        ; Handle fire
         LDY #$01
         STA UNFOLL      ; If Unfollow is set, the turtles
                         ;   will not follow you
+        LDA #SD_F
+        JSR SOUND       ; Launch the alert sound
+        LDA DIRBLK
+        BEQ MV_RTS
 DOMOVE: JSR ISOPEN      ; Is the candidate space open?
         BEQ MV_RTS      ;   If not, don't move
         TXA
@@ -292,6 +295,8 @@ NPC_MV: LDA #$5A        ; First, look for a turtle near the
         LDA #$20        ; Remove the turtle
         STA (CAND_L),Y
         DEC TURTLS      ; Decrement the turtle count
+        LDA #SD_REC
+        JSR SOUND       ; Launch the rescue sound
         LDA #$64
         JSR USCORE      ; Add to the score
         LDA #$08
@@ -562,7 +567,7 @@ RSCAND: LDA DATA_L
         RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;; MUSIC PLAYER SUBROUTINES
+;;;; MUSIC AND EFFECT PLAYER SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; M_PLAY - Start the music player
 M_PLAY: LDA #$01
@@ -576,14 +581,69 @@ M_STOP  LDA #$00
         RTS
                     
 ; NXNOTE - Rotates the 16-bit register one bit to the left
-NXNOTE: LDX #$00        ; X is the carry bit for REG_H
+; and plays the note
+NXNOTE: LDA #$01
+        BIT PLAY
+        BEQ NOTE_R
+        DEC MUCD 
+        BNE NOTE_R
+        LDA TEMPO
+        STA MUCD
+        LDX #$00        ; X is the carry bit for REG_H
         ASL REG_L       ; Shift the low byte, which may set C
         ROL REG_H       ; Rotate the high byte, including C
-        BCC ROLL        ; Was the high bit of the high byte set?
+        BCC NROLL       ; Was the high bit of the high byte set?
         LDX #$01        ; If so, add it back to the beginning
-ROLL    TXA
+NROLL:  TXA
         ORA REG_L
         STA REG_L
+        ORA #$80
+        STA VOICEM
+        LDA REG_H       ; This will set the volume and flash
+        STA VOLUME      ;   the windows of the spaceship
+NOTE_R: RTS
+
+; NXPITCH - Rotates the 8-bit sound effect register and
+; plays the pitch      
+NXFX:   LDA FXLEN       ; Has the sound been launched?
+        BEQ ENDFX       ; If unlaunched, kill voice and return
+        DEC FXLEN
+        DEC FXCD
+        BNE FX_R
+        LDA FXCDRS      ; Reset the countdown
+        STA FXCD        ; ..
+        LDX #$00
+        ROL REG_FX      ; Rotate the register left
+        BCC EROLL
+        LDX #$01
+EROLL:  TXA
+        ORA REG_FX
+        STA REG_FX
+        ORA #$80
+ENDFX:  STA VOICEH
+FX_R:   RTS      
+        
+; SOUND - Launch a sound effect
+; Preparations
+;     A - The sound effect index
+SOUND:  SEI             ; Don't play anything while setting up
+        STX SCRPAD
+        ASL             ; Each effect has two parameters in the
+                        ;   table, register and length (in
+                        ;   jiffies.
+        TAX
+        LDA FXTYPE,X    ; Get the register
+        STA REG_FX      ;   and activate it
+        INX
+        LDA FXTYPE,X    ; Get the length
+        AND #$F0
+        STA FXLEN       ;   and set it
+        LDA FXTYPE,X
+        AND #$0F
+        STA FXCDRS      ; Record the reset value
+        STA FXCD        ; Set the countdown
+        LDX SCRPAD
+        CLI             ; Go! 
         RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -761,6 +821,7 @@ WELCOM: LDA #SCRCOM     ; Set background color
 
 ; INITLV - Set up screen
 INITLV: JSR CLSR
+        JSR M_STOP
         JSR MAZE
         LDA #$3A        ; Place the spaceship
         STA SCRPAD
@@ -812,6 +873,8 @@ INITSH: LDY SHOFF,X
         LDA #$00
         JSR USCORE      ; Display current score
         JSR M_PLAY      ; Start the music
+        LDA #SD_LEV
+        JSR SOUND       ; Launch level start sound
         RTS 
 
 ; SETHW - Some hardware setup. This only needs to be done
@@ -897,7 +960,7 @@ PLCNEW  PLA
         RTS
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;; GAME ASSET DATA
+;;;; GAME ASSET DATA AND TABLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 INTRO:  .asc "TRBO- TURTLE RESCUEBOT"
         .asc "   . JASON JUSTIAN",$0d
@@ -918,7 +981,7 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $00,$00,$44,$aa,$11,$00,$00,$00 ; Beam
         .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
         .byte $3c,$24,$3c,$00,$3c,$7e,$18,$3c ; LocationTerminal
-        .byte $00,$18,$18,$00,$00,$18,$18,$00 ; Colon
+        .byte $00,$14,$14,$00,$00,$18,$18,$00 ; Colon
         .byte $3c,$42,$99,$a1,$a1,$99,$42,$3c ; Copyright
         .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff ; Wall
         .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
@@ -943,7 +1006,8 @@ COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$04
 ; Spaceship part offsets        
 SHOFF:  .byte $43,$42,$2C,$2D       
 
-; Curated musical scores for the shift register player     
+; Curated musical scores for the shift register player, in
+; high byte/low byte order... so, backwards.   
 SCORES: .byte $32,$23
         .byte $12,$54
         .byte $d2,$2b
@@ -955,3 +1019,13 @@ SCORES: .byte $32,$23
         .byte $54,$53
         .byte $19,$84
         .byte $19,$29
+
+; Sound effects for the sound effects player
+; Each effect has three parameters
+;   (1) First byte is the starting shift register value
+;   (2) High nybble of second byte is the length in jiffies x 16
+;   (3) Low nybble of second byte is refresh rate in jiffies
+FXTYPE: .byte $55,$12                       ; Fire sound
+        .byte $01,$24                       ; Turtle rescue
+        .byte $23,$62                       ; Terminal Activated
+        .byte $2F,$34
