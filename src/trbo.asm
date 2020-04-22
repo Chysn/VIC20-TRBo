@@ -52,21 +52,20 @@ CHRAM1 = $1D00          ; Custom Characters
 
 ; Characters
 CH_SPC = $20            ; Space
-CH_TUR = $21            ; Turtle Right (!)
-CH_TUL = $22            ; Turtle Left (")
-CH_TUU = $23            ; Turtle Up (#)
-CH_PLR = $24            ; TRBo Right ($)
-CH_PLL = $25            ; TRBo Left (%)
-CH_PLU = $26            ; TRBo Up/Down (&)
-CH_PAR = $27            ; Patrol Right (')
-CH_PAL = $28            ; Patrol Left ( ( )
-CH_PAU = $29            ; Patrol Up/Down ( ) )
-CH_BEA = $2A            ; Beam (*)
-CH_LAD = $2B            ; Ladder (+)
-CH_TER = $2C            ; Location Terminal (,)
-CH_SPA = $2D            ; Spaceship (-)
-CH_CPY = $2E            ; Copyright (.)
-CH_WAL = $2F            ; Wall (/)
+CH_TUR = $21            ; Turtle Right (exclamation)
+CH_TUL = $22            ; Turtle Left (double quote)
+CH_TUU = $23            ; Turtle Up (octothorpe)
+CH_PLR = $24            ; TRBo Right (dollar)
+CH_PLL = $25            ; TRBo Left (percent)
+CH_PLU = $26            ; TRBo Up/Down (ampersand)
+CH_PAR = $27            ; Patrol Right (single quote)
+CH_PAL = $28            ; Patrol Left (open paren)
+CH_PAU = $29            ; Patrol Up/Down (close paren)
+CH_BEA = $2A            ; Beam (asterisk)
+CH_LAD = $2B            ; Ladder (plus)
+CH_TER = $2C            ; Location Terminal (comma)
+CH_CPY = $2E            ; Copyright (period)
+CH_WAL = $2F            ; Wall (slash)
                   
 ; Music Player                  
 REG_L  = $033C          ; \ Storage for the shift register
@@ -88,6 +87,10 @@ SCOR_H = $0347          ; /
 UNDER  = $0348          ; Character underneath player
 JOYDIR = $0349          ; Joystick direction capture
 DIRBLK = $034A          ; Directional block
+TURTLS = $034B          ; Turtle count for the level
+PATRLS = $034C          ; Patrol count for the level
+UNFOLL = $034D          ; Unfollow if fire is pressed
+
 PLR_L  = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; / Screen position (maze builder)
 CAND_L = $03            ; \ Candidate direction
@@ -133,6 +136,12 @@ FRWAIT: JSR READJS      ; Read joystick
         BNE FRWAIT      ; Wait for the frame counter to hit 0
         JSR PL_MV       ; Process the player's movement
         JSR NPC_MV      ; Process non-player movement
+        LDA TURTLS      ; Has the level been completed?
+        BEQ LVLUP
+        JMP MAIN
+        
+LVLUP:  INC GLEVEL
+        JSR INITLV
         JMP MAIN
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -151,9 +160,8 @@ CSTISR: LDA #$01
         LDA REG_H
         ORA #$80
         STA VOICEM
-        LDA REG_L
-        AND #$0F
-        STA VOLUME
+        LDA REG_L       ; This will set the volume and flash
+        STA VOLUME      ;   the windows of the spaceship
 ENDISR: DEC FRCD
         JMP SYSISR        
         
@@ -162,6 +170,7 @@ ENDISR: DEC FRCD
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; PL_MV - Move the player, based on the joystick position
 PL_MV:  LDY #$00
+        STY UNFOLL
         LDA (PLR_L),Y
         TAX             ; Set current player character
         LDA JOYDIR
@@ -174,11 +183,16 @@ SETC:   LDA PLR_L       ; Set the candidate direction
 JY_U:   LDA #$04        ; Handle up
         BIT JOYDIR
         BEQ JY_R
-        LDA UNDER       ; You can only move up if you're on
-        CMP #CH_LAD     ;   a ladder
-        BNE JY_R
         JSR MVCD_U      ; Move candidate up
-        LDA #$01
+        LDA SCPAGE      ; If the candidate is past the
+        CMP CAND_H      ;   top of the play area, then
+        BNE JY_UC       ;   leave the handler routine
+        LDA #$58
+        CMP CAND_L
+        BCC JY_UC
+        JSR MVCD_D
+        RTS
+JY_UC:  LDA #$01        ; Upward movement may proceed
         STA DIRBLK
         LDX #CH_PLU
         JMP JY_F
@@ -209,124 +223,170 @@ JY_L:   LDA #$10        ; Handle left
         CMP SCPAGE      ;   side of the screen, then
         BNE JY_F        ;   restore the candidate back
         LDA CAND_L      ;   to the curent player
-        CMP #$57        ;   coordinates
+        CMP #$58        ;   coordinates
         BNE JY_F
-        LDA PLR_L
-        STA CAND_L
+        RTS
 JY_F:   LDA #$20        ; Handle fire
         BIT JOYDIR
-        BEQ DOMOVE:
-        ; Do something
-        
+        BEQ DOMOVE
+        LDY #$01
+        STA UNFOLL      ; If Unfollow is set, the turtles
+                        ;   will not follow you
 DOMOVE: JSR ISOPEN      ; Is the candidate space open?
         BEQ MV_RTS      ;   If not, don't move
         TXA
         PHA             ; Save the player character
         LDX UNDER       ; Restore the previous character
-        LDA PLR_L       ; Prepare for PLACE
-        LDY PLR_H
-        SEC
-        JSR PLACE
+        LDA PLR_L       ; ..
+        LDY PLR_H       ; ..
+        SEC             ; ..
+        JSR PLACE       ; ..
+        
         LDY #$00
         LDA (CAND_L),Y  ; Get the current character at candidate
         STA UNDER       ;   and save it for when we move away
-        PLA
-        TAX             ; Prepare for PLACE
-        LDA CAND_L
-        LDY CAND_H
-        SEC
-        JSR PLACE
-        LDA PLR_L       ; Move current player position to data
-        STA DATA_L      ;   so that we can look around for
-        LDA PLR_H       ;   turtles.
-        STA DATA_H
+        PLA             ; Place the player
+        TAX             ; ..
+        LDA CAND_L      ; ..
+        LDY CAND_H      ; ..
+        SEC             ; ..
+        JSR PLACE       ; ..
+        
+        LDA PLR_H       ; Store the player position temporarily
+        PHA             ;   so that we have the previous
+        LDA PLR_L       ;   position after the update
+        PHA
+        
         LDA CAND_L      ; Update player position
         STA PLR_L
         LDA CAND_H
         STA PLR_H
-        LDA DATA_L      ; Move previous player position into
-        STA CAND_L      ;   the candidate for use with the
-        LDA DATA_H      ;   turtle chain.
+        
+        PLA             ; Put the previous position into 
+        STA CAND_L      ;   candidate so that we can look around
+        PLA             ;   for a turtle chain
         STA CAND_H
-        JSR TURCHN      ; Find turtles for a turtle chain
+        
+        LDA UNFOLL      ; If the fire button is down, then a
+        BNE MV_RTS      ;   turtle chain can't be started
+        LDY #$00        ; If there's a turtle in the previous
+        LDA (CAND_L),Y  ;   position, then a turtle chain can't
+        CMP #CH_TUR     ;   be started, or else that turle will
+        BEQ MV_RTS      ;   be destroyed. Check for all three
+        CMP #CH_TUL     ;   turtle characters.
+        BEQ MV_RTS
+        CMP #CH_TUU
+        BEQ MV_RTS
+        JSR TURCHN      ; Recursively find turtles for a chain
 MV_RTS: RTS
        
 ; NPC_MV - Move non-player characters (turtles and patrols)        
-NPC_MV: RTS
-
+NPC_MV: LDA #$5A        ; First, look for a turtle near the
+        STA CAND_L      ;   spaceship. This turtle will be
+        LDA SCPAGE      ;   rescued. Rescue involves
+        STA CAND_H      ;   (1) Removing the turtle
+        LDY #$00        ;   (2) Adding to the score    
+        LDA (CAND_L),Y  ;   (3) Playing a sound
+        CMP #CH_TUL     ;   (4) Decrement the turtle count
+        BNE PATROL      ;   (5) Chaining other turtles
+        LDA #$20        ; Remove the turtle
+        STA (CAND_L),Y
+        DEC TURTLS      ; Decrement the turtle count
+        LDA #$64
+        JSR USCORE      ; Add to the score
+        LDA #$08
+        STA DIRBLK
+        JSR TURCHN      ; Chain other turtles
+PATROL: RTS
+        
+        
 ; TURCHN - Turtle chain! look around the position in candidate
-; a turtle. If there's a turtle there, move it, then
-; recursively call TURCHR to keep the chain going.
-TURCHN: LDA CAND_L      ; DATA will contain the original
-        STA DATA_L      ;   position, while the candidate
-        LDA CAND_H      ;   may be moved.
-        STA DATA_H
-        LDY DIRBLK      ; Get the directional block, to avoid
+; for a turtle. If there's a turtle there, move it, then
+; recursively call TURCHN to keep the chain going.
+TURCHN: JSR SDATA       ; DATA will contain the original
+                        ;   position, while the candidate
+                        ;   may be moved
+LOOK_U: LDY DIRBLK      ; Get the directional block, to avoid
                         ;   looking in the direction from which
-                        ;   we came.
-LOOK_U: CPY #$01
+        CPY #$01        ;   we came     
         BEQ LOOK_R      ; Direction is blocked; look right
         JSR MVCD_U
         JSR CH4TUR      ; Check for a turtle above
-        BCC LOOK_R
+        BNE LOOK_R
         LDA #$04
         STA DIRBLK
         LDX #CH_TUU     ; Pulling turtle from above, so use
                         ;   the turtle on a ladder
-        BNE MOVETU
-LOOK_R: CPY #$02
+        JMP MOVETU
+LOOK_R: LDY DIRBLK
+        CPY #$02
         BEQ LOOK_D
         JSR RSCAND
         JSR MVCD_R
         JSR CH4TUR
-        BCC LOOK_D
+        BNE LOOK_D
         LDA #$08
         STA DIRBLK
         LDX #CH_TUL     ; Pulling a turtle from the right, so
                         ;   use the left-facing turtle
-        BNE MOVETU
-LOOK_D: CPY #$04
+        JMP MOVETU
+LOOK_D: LDY DIRBLK
+        CPY #$04
         BEQ LOOK_L
         JSR RSCAND
         JSR MVCD_D
         JSR CH4TUR
-        BCC LOOK_L
+        BNE LOOK_L
         LDA #$01
         STA DIRBLK
         LDX #CH_TUU     ; Pulling a turtle from below, so
                         ;   use the turtle on a ladder
-        BNE MOVETU
-LOOK_L: CPY #$08
+        LDY #$00
+        LDA (DATA_L),Y
+        CMP #CH_LAD
+        BEQ MOVETU
+        DEX             ; If the turtle isn't being pulled
+                        ;   ONTO a ladder, change to a left-
+                        ;   facing turtle. The turtle might
+                        ;   look confused for a moment, but
+                        ;   that's baby turtles for ya
+        JMP MOVETU
+LOOK_L: LDY DIRBLK
+        CPY #$08
         BEQ CHN_R
         JSR RSCAND
         JSR MVCD_L
         JSR CH4TUR
-        BCC CHN_R
+        BNE CHN_R
         LDA #$02
         STA DIRBLK
         LDX #CH_TUR     ; Pulling a turtle from the left, so
                         ;   use the right-facing turtle
-                        
+
 ; To move a turtle in the chain, a turtle will be placed in
-; the CANDIDATE location, with the movement graphic, as set
+; the DATA location, with the movement graphic, as set
 ; above in X. Then, the current position (DATA) needs to be 
 ; cleared out. It'll be cleared with either a space, or a 
 ; ladder, depending on the current graphic at the DATA 
 ; location.  Then, recursively call TURCH to continue the
 ; chain.
 MOVETU: LDY #$00
-        LDA (DATA_L),Y  ; What's there now?
+        LDA (CAND_L),Y  ; What turtle is there now?
         PHA
-        LDA DATA_L      ; Place the turtle in the DATA position
+        LDA (DATA_L),Y  ; Where the turtle is going?
+        CMP #CH_LAD     ; To a ladder?
+        BNE PL_TUR      ; If not, use the selected graphic
+        LDX #CH_TUU     ; Otherwise, switch to the ladder turtle
+PL_TUR: LDA DATA_L      ; Place the turtle in the DATA position
         LDY DATA_H      ; ...
         SEC             ; ...
         JSR PLACE       ; ...
-        LDX #$20        ; Default to replacing with space
+        LDX #CH_SPC     ; Default to replacing with space
         PLA
         CMP #CH_TUU     ; But if the turtle is coming off a
-        BNE OPENCH      ;   ladder, replace with a ladder
+        BNE PL_SL       ;   ladder, replace with a ladder
         LDX #CH_LAD
-OPENCH: LDA CAND_L      ; Place the space or ladder
+PL_SL : LDA CAND_L      ; Place the space or ladder
         LDY CAND_H      ; ...
         SEC             ; ...
         JSR PLACE       ; ...
@@ -383,9 +443,9 @@ MVCDAD: CLC
 MVAD_R: RTS
 
 ; MVCDSB - Subtract from direction
-MVCDSB: SEC
-        STA SCRPAD
+MVCDSB: STA SCRPAD
         LDA CAND_L
+        SEC
         SBC SCRPAD
         STA CAND_L
         BCS MVSB_R        
@@ -404,23 +464,22 @@ ISOPEN: LDY #$00
         CMP (CAND_L),Y
         RTS
         
-; CH4TUR - Check for turtle at candidate position. Set carry
-; flag if there's a turtle there.
+; CH4TUR - Check for turtle at candidate position. Zero flag
+; is set if there's a turtle.
 CH4TUR: TYA
         PHA
-        SEC
         LDY #$00
         LDA (CAND_L),Y
-        CMP #CH_TUR
-        BEQ TUR_OK
-        CMP #CH_TUL
-        BEQ TUR_OK
-        CMP #CH_TUU
-        BEQ TUR_OK
-        CLC
-TUR_OK: PLA
+        TAX
+        PLA
         TYA
-        RTS        
+        CPX #CH_TUR
+        BEQ CH4_R
+        CPX #CH_TUL
+        BEQ CH4_R
+        CPX #CH_TUU
+        BEQ CH4_R
+CH4_R:  RTS        
         
 ; PLACE - Place the character on the screen at the specified
 ; address.
@@ -455,7 +514,7 @@ CHRCOL: STA DATA_L
         LDY #$00
         LDA (DATA_L),Y  ; Character at the specified address
         SEC
-        SBC #$20        ; Get a color table index
+        SBC #CH_SPC     ; Get a color table index
         TAX             ;   and store it in X for later
         LDA DATA_H      ; Subtract the starting page of screen
         SEC             ;   memory from the specified page to
@@ -486,13 +545,20 @@ SCDRAW: JSR HOME
         LDX SCOR_L
         LDA SCOR_H
         JSR PRTFIX
+        RTS       
+
+; SDATA - Set DATA pointer from candidate
+SDATA:  LDA CAND_L
+        STA DATA_L
+        LDA CAND_H
+        STA DATA_H
         RTS
        
 ; RSCAND - Reset candidate from DATA pointer 
 RSCAND: LDA DATA_L
         STA CAND_L
         LDA DATA_H
-        STA DATA_H
+        STA CAND_H
         RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -540,7 +606,7 @@ L1:     LDA #CH_WAL
         STA $9700,Y
         INY
         BNE L1
-        LDA #$58        ; Offset for the maze
+        LDA #$59        ; Offset for the maze
         STA SPOS_L
         LDA SCPAGE
         STA SPOS_H
@@ -609,7 +675,7 @@ KNOCK:  DEY             ; Keep one wall intact
         TYA             ; Double the length. This is how many
         ASL             ; walls are going to be knocked out.
         TAY
-        LDA #$20        ; Knock out walls with a space
+        LDA #CH_SPC     ; Knock out walls with a space
 KNLOOP: STA (SPOS_L),Y  ; Knock out Y walls
         DEY
         BPL KNLOOP
@@ -645,7 +711,7 @@ RESET:  PLA             ; Start restoring things for return
         STA SPOS_L
         RTS   
 
-; RAND - Get a random number between 1 and 16. A contains the
+; RAND - Get a random number between 1 and 8. A contains the
 ; maximum value. The random number will be in Y.
 RAND:   STA SCRPAD
         DEC SCRPAD      ; Behind the scenes, look for a number
@@ -653,7 +719,7 @@ RAND:   STA SCRPAD
                         ;   below, which compensates
         JSR BASRND
         LDA RNDNUM
-        AND #$0F
+        AND #$07
         CMP SCRPAD
         BCC E_RAND      ; Get another random number if this one
         BEQ E_RAND      ; is greater than the maximum
@@ -679,7 +745,7 @@ CL0:    LDA CHROM0,X
 CL1:    LDA CCHSET,X
         STA CHRAM1+8,X
         INX
-        CPX #$C8
+        CPX #$E8
         BNE CL1
         LDA #$FF        ; Switch over character map
         STA VICCR5
@@ -696,12 +762,22 @@ WELCOM: LDA #SCRCOM     ; Set background color
 ; INITLV - Set up screen
 INITLV: JSR CLSR
         JSR MAZE
-        LDX #CH_SPA     ; Prepare to place spaceship
-        LDA #$6D
-        LDY SCPAGE
-        SEC
-        JSR PLACE       ; Place the spaceship (goal)
-        LDA #$58        ; Position the player at the top
+        LDA #$3A        ; Place the spaceship
+        STA SCRPAD
+        LDA #$00
+        STA DATA_L
+        LDA SCPAGE
+        STA DATA_H        
+        LDX #$03
+INITSH: LDY SHOFF,X
+        LDA SCRPAD
+        STA (DATA_L),Y
+        LDA #$0D
+        STA $9600,Y
+        INC SCRPAD
+        DEX
+        BPL INITSH
+        LDA #$5A        ; Position the player at the top
         STA PLR_L       ;   of the maze.
         LDY SCPAGE
         STY PLR_H
@@ -714,10 +790,12 @@ INITLV: JSR CLSR
         LDX #CH_TER     ; ...
         JSR POPULA      ; ...
         LDY #$0A        ; Populate some turtles
+        STY TURTLS      ; .. Set the turtle count
         LDX #CH_TUR     ; ...
         JSR POPULA      ; ...
         LDA GLEVEL      ; Populate some patrols
         TAY             ; ...
+        INY             ; ...
         INY             ; ...
         LDX #CH_PAL     ; ...
         JSR POPULA      ; ...
@@ -799,7 +877,7 @@ RX:     DEY
         BPL PL2
         LDY #$00
         LDA (DATA_L),Y
-        CMP #$20        ; Is the randomly-determined space
+        CMP #CH_SPC     ; Is the randomly-determined space
         BEQ PLCNEW      ;   occupied already?
         PLA
         TAX
@@ -810,7 +888,7 @@ PLCNEW  PLA
         TAX
         LDA DATA_L
         LDY DATA_H
-        CLC             ; Hide all the populated objects
+        SEC             ; Hide all the populated objects
         JSR PLACE       ; Place the character in X, and
         PLA             ; Decrement the character number
         TAY             ;   counter. 
@@ -821,7 +899,7 @@ PLCNEW  PLA
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INTRO:  .asc "TRBO: TURTLE RESCUEBOT"
+INTRO:  .asc "TRBO- TURTLE RESCUEBOT"
         .asc "   . JASON JUSTIAN",$0d
         .asc "!   FIRE TO START    %",$00
         
@@ -840,7 +918,7 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $00,$00,$44,$aa,$11,$00,$00,$00 ; Beam
         .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
         .byte $3c,$24,$3c,$00,$3c,$7e,$18,$3c ; LocationTerminal
-        .byte $00,$18,$3c,$db,$7e,$18,$24,$42 ; Spaceship
+        .byte $00,$18,$18,$00,$00,$18,$18,$00 ; Colon
         .byte $3c,$42,$99,$a1,$a1,$99,$42,$3c ; Copyright
         .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff ; Wall
         .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
@@ -853,10 +931,17 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $7f,$03,$03,$03,$01,$01,$01,$00 ; 7
         .byte $7f,$41,$41,$7f,$43,$43,$7f,$00 ; 8
         .byte $7f,$43,$43,$7f,$01,$01,$01,$00 ; 9
+        .byte $00,$00,$00,$00,$00,$80,$80,$a8 ; Ship1
+        .byte $00,$00,$00,$00,$00,$00,$00,$0a ; Ship2
+        .byte $2b,$2f,$0b,$02,$00,$00,$02,$08 ; Ship3
+        .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship4
 
 ; Color map for the above characters, indexed from SPACE
-COLMAP: .byte $00,$05,$05,$05,$06,$06,$06,$04
+COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$04
         .byte $04,$04,$07,$01,$02,$01
+
+; Spaceship part offsets        
+SHOFF:  .byte $43,$42,$2C,$2D       
 
 ; Curated musical scores for the shift register player     
 SCORES: .byte $32,$23
