@@ -40,19 +40,20 @@ CASECT = $0291          ; Disable Commodore case
 PRTFIX = $DDCD          ; Decimal display routine
 
 ; Constants
-SCRCOM = $08            ; Maze color
+SCRCOM = $6E            ; Maze color
 SCRCOT = $3B            ; Top color
-TXTCOL = $06            ; Text color
-WALCOL = $01            ; Wall color
-SPEED  = $10            ; Game speed, in jiffies of delay
-CHRAM0 = $1C00          ; Custom Characters
-CHRAM1 = $1D00          ; Custom Characters
+TXTCOL = $01            ; Text color
+SPEED  = $0E            ; Game speed, in jiffies of delay
+CHRAM0 = $1C00          ; Custom Characters, Page 0
+CHRAM1 = $1D00          ; Custom Characters, Page 1
 
 ; Sound Effects Library
-SD_F   = $00            ; Fire button sound
-SD_REC = $01            ; Rescue sound
-SD_ACT = $02            ; Computer terminal activated
-SD_LEV = $03            ; Entering a new level
+FX_STA = $00            ; Start the game
+FX_FIR = $01            ; Beam sound
+FX_RES = $02            ; Rescue sound
+FX_TER = $03            ; Computer terminal activated
+FX_UNF = $04            ; Unfollow sound
+FX_DMG = $05            ; The player was damaged
 
 ; Characters
 CH_SPC = $20            ; Space
@@ -68,8 +69,7 @@ CH_PAU = $29            ; Patrol Up/Down (close paren)
 CH_BEA = $2A            ; Beam (asterisk)
 CH_LAD = $2B            ; Ladder (plus)
 CH_TER = $2C            ; Location Terminal (comma)
-CH_CPY = $2E            ; Copyright (period)
-CH_WAL = $2F            ; Wall (slash)
+CH_WAL = $2D            ; Wall (minus)
                   
 ; Music Player                  
 REG_L  = $033C          ; \ Music shift register
@@ -100,10 +100,24 @@ DIRBLK = $034A          ; Directional block
 TURTLS = $034B          ; Turtle count for the level
 PATRLS = $034C          ; Patrol count for the level
 UNFOLL = $034D          ; Unfollow if fire is pressed
+HUNTER = $0352          ; Hunters will attack turtles
+FIRED  = $0353          ; A beam was fired
+HEALTH = $0354          ; Player health
 PLR_L  = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; / Screen position (maze builder)
 CAND_L = $03            ; \ Candidate direction
 CAND_H = $04            ; /
+
+; Start of Patrol Table
+; Each entry in the Patrol Table contains four bytes. Indexed
+; from the start of each entry, these are
+;   0 - Patrol position (low byte)
+;   1 - Patrol position (high byte)
+;   2 - Multiple data points
+;       bits 0-2 - Fire refresh countdown
+;       bit 7    - Vertical travel (up=1, down=0)
+;   3 - Character under the patrol (ladder or space)
+PATTAB = $03C0          ; Start of Patrol table
 
 ; General use registers - Any function may use these, but no
 ; function may assume that they're safe from other functions
@@ -121,7 +135,14 @@ INIT:   JSR SETHW       ; Set up hardware features
 ; Intro Screen
 GMOVER: JSR CLSR        ; Clear screen
         JSR MAZE        ; Draw Maze
-        JSR WELCOM      ; Show intro screen
+        LDA #<INTRO     ; Show the intro screen
+        LDY #>INTRO     ; ..
+        JSR PRTSTR      ; ..
+        LDY #$06        ; Populate some turtles
+        LDX #CH_TUR     ; ...
+        JSR POPULA      ; ...
+        JSR REVEAL      ; Reveal the board
+        JSR SPSHIP
 WAIT:   JSR READJS
         AND #$20        ; Wait for the fire button
         BEQ WAIT
@@ -130,10 +151,14 @@ WAIT:   JSR READJS
 STGAME: LDA #$00
         STA SCOR_L
         STA SCOR_H
-        STA GLEVEL 
+        STA GLEVEL
+        JSR SOUND
+        LDA #$04
+        STA HEALTH
 
 ; Start a new level
 STLEV:  JSR INITLV
+        JSR REVEAL      ; Diagnostic - remove when done
 
 ; Main loop
 MAIN:   LDA #$00        ; Reset joystick
@@ -143,12 +168,13 @@ MAIN:   LDA #$00        ; Reset joystick
 FRWAIT: JSR READJS      ; Read joystick
         LDA FRCD
         BNE FRWAIT      ; Wait for the frame counter to hit 0
+        JSR CLBEAM      ; Clear the beam, if fired
         JSR PL_MV       ; Process the player's movement
         JSR NPC_MV      ; Process non-player movement
         LDA TURTLS      ; Has the level been completed?
         BEQ LVLUP
         JMP MAIN
-        
+
 LVLUP:  INC GLEVEL
         JSR INITLV
         JMP MAIN
@@ -156,8 +182,8 @@ LVLUP:  INC GLEVEL
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; INTERRUPT SERVICE ROUTINE
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; CSTISR - The Interrupt Service Routine. Based on the tempo,
-; get the next note and play it. Decrement the frame countdown.
+; Custom ISR
+; Play music, sound effects, and update frame countdown
 CSTISR: JSR NXNOTE
         JSR NXFX
 ENDISR: DEC FRCD
@@ -166,7 +192,7 @@ ENDISR: DEC FRCD
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME PLAY SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; PL_MV - Move the player, based on the joystick position
+; Move the player
 PL_MV:  LDY #$00
         STY UNFOLL
         STY DIRBLK
@@ -231,12 +257,12 @@ JY_F:   LDA #$20        ; Handle fire
         LDY #$01
         STA UNFOLL      ; If Unfollow is set, the turtles
                         ;   will not follow you
-        LDA #SD_F
+        LDA #FX_UNF
         JSR SOUND       ; Launch the alert sound
         LDA DIRBLK
-        BEQ MV_RTS
-DOMOVE: JSR ISOPEN      ; Is the candidate space open?
-        BEQ MV_RTS      ;   If not, don't move
+        BEQ MV_R  
+DOMOVE: JSR ISBLOC      ; Is the candidate space open?
+        BEQ MV_R        ;   If not, don't move
         TXA
         PHA             ; Save the player character
         LDX UNDER       ; Restore the previous character
@@ -248,7 +274,14 @@ DOMOVE: JSR ISOPEN      ; Is the candidate space open?
         LDY #$00
         LDA (CAND_L),Y  ; Get the current character at candidate
         STA UNDER       ;   and save it for when we move away
-        PLA             ; Place the player
+        CMP #CH_TER     ; Has the player encountered the
+        BNE PL_PL       ;   computer terminal?
+        LDA #$20
+        STA UNDER       ; Goes away after use
+        LDA #FX_TER
+        JSR SOUND       ; Launch the terminal sound
+        JSR REVEAL      ; Reveal the board
+PL_PL:  PLA             ; Place the player
         TAX             ; ..
         LDA CAND_L      ; ..
         LDY CAND_H      ; ..
@@ -271,19 +304,20 @@ DOMOVE: JSR ISOPEN      ; Is the candidate space open?
         STA CAND_H
         
         LDA UNFOLL      ; If the fire button is down, then a
-        BNE MV_RTS      ;   turtle chain can't be started
+        BNE MV_R        ;   turtle chain can't be started
         LDY #$00        ; If there's a turtle in the previous
         LDA (CAND_L),Y  ;   position, then a turtle chain can't
         CMP #CH_TUR     ;   be started, or else that turle will
-        BEQ MV_RTS      ;   be destroyed. Check for all three
+        BEQ MV_R        ;   be destroyed. Check for all three
         CMP #CH_TUL     ;   turtle characters.
-        BEQ MV_RTS
+        BEQ MV_R  
         CMP #CH_TUU
-        BEQ MV_RTS
+        BEQ MV_R
         JSR TURCHN      ; Recursively find turtles for a chain
-MV_RTS: RTS
+MV_R:   RTS
        
-; NPC_MV - Move non-player characters (turtles and patrols)        
+; NPC Move
+; Move non-player characters (turtles and patrols)        
 NPC_MV: LDA #$5A        ; First, look for a turtle near the
         STA CAND_L      ;   spaceship. This turtle will be
         LDA SCPAGE      ;   rescued. Rescue involves
@@ -295,19 +329,24 @@ NPC_MV: LDA #$5A        ; First, look for a turtle near the
         LDA #$20        ; Remove the turtle
         STA (CAND_L),Y
         DEC TURTLS      ; Decrement the turtle count
-        LDA #SD_REC
+        LDA #FX_RES
         JSR SOUND       ; Launch the rescue sound
         LDA #$64
         JSR USCORE      ; Add to the score
         LDA #$08
         STA DIRBLK
         JSR TURCHN      ; Chain other turtles
-PATROL: RTS
+PATROL: LDX PATRLS      ; Move each patrol
+FORPAT: DEX             ; Patrols are zero-indexed
+        JSR PAT_AI      ; Call patrol AI routine
+        CPX #$00
+        BNE FORPAT
+        RTS
         
-        
-; TURCHN - Turtle chain! look around the position in candidate
-; for a turtle. If there's a turtle there, move it, then
-; recursively call TURCHN to keep the chain going.
+; Turtle Chain! 
+; Look around the position in candidate for a turtle. 
+; If there's a turtle there, move it, then recursively call
+; TURCHN to keep the chain going.
 TURCHN: JSR SDATA       ; DATA will contain the original
                         ;   position, while the candidate
                         ;   may be moved
@@ -398,48 +437,107 @@ PL_SL : LDA CAND_L      ; Place the space or ladder
         JMP TURCHN
 CHN_R:  RTS
         
-; MV_TUR - Move a turtle at the DATA register. Turtles don't
-; usually move. A turtle will only move if doing so would put
-; it next to the player, or to another turtle.
-MV_TUR:  
-
-; READJS - Read the joystick, if it has not yet been read,
-; and store a combined direction register in JOYDIR, and
-; return the same in A
-READJS: LDA VIA1PA      ; Read VIA1 port
-        AND #$3C        ; Keep track of bits 2,3,4,5
-        STA SCRPAD
-        LDA VIA2PB      ; Combine with read of bit 7
-        AND #$80        ;   from VIA2-B
-        ORA SCRPAD
-        EOR #$BC        ; Flip each joystick bit in the
-                        ;   combined read byte, so that
-                        ;   on = 1
-        BEQ READ_R      ; If any directions are selected,
-                        ;   set the JOYDIR register
-        STA JOYDIR
-READ_R: RTS        
+; Patrol AI
+; 
+; Preparations
+;     X is the patrol index
+PAT_AI: TXA
+        PHA
+        ASL
+        ASL             ; Index four bytes per patrol
+        TAX             ; Actual table index
+        LDA PATTAB,X
+        STA CAND_L
+        LDA PATTAB+1,X
+        STA CAND_H
+        JSR SDATA
+        JSR LOS         ; Check line of sight
+        LDY #$00        
+IA_U:   JSR MVCD_U
+        LDA SCPAGE      ; If the candidate is past the
+        CMP CAND_H      ;   top of the play area, then
+        BNE IA_UC       ;   go to the next option
+        LDA #$58
+        CMP CAND_L
+        BCS IA_L
+IA_UC:  JSR OPEN2P
+        BNE IA_L
+        LDA #CH_PAU
+        STA (DATA_L),Y
+        LDA (CAND_L),Y  ; Moving up to a space?
+        CMP #CH_SPC
+        BNE MOVPAT      ; If it's a ladder, just move
+NEWDIR: LDA CAND_L      ; Once off the ladder, choose
+        CMP PLR_L       ;   a new direction. This is also
+        LDA #CH_PAR     ;   used below, when going down
+        ADC #$00        ;   the ladder.
+        STA (DATA_L),Y
+        JMP MOVPAT
+IA_L:   JSR RSCAND
+        LDA (CAND_L),Y  ; Get the character here
+        CMP #CH_PAL     ; Left patrol
+        BNE AI_R
+        JSR MVCD_L
+        JSR OPEN2P
+        BEQ MOVPAT
+        LDA #CH_PAR     ; Turn around
+        STA (DATA_L),Y
+        JMP P_AI_R
+AI_R:   JSR RSCAND
+        LDA (CAND_L),Y
+        CMP #CH_PAR     ; Right patrol
+        JSR MVCD_R
+        JSR OPEN2P
+        BEQ MOVPAT
+        LDA #CH_PAL     ; Turn around
+        STA (DATA_L),Y
+        JMP P_AI_R
+MOVPAT: LDY #$00
+        LDA (DATA_L),Y  ; Get the current character
+        PHA             ;   and stash it for redraw
+        LDA PATTAB+3,X  ; Restore the character under
+        STA (DATA_L),Y  ;   and set the correct color
+        LDA DATA_L      ; ..
+        LDY DATA_H      ; ..
+        SEC
+        JSR CHRCOL      ; ..
+        LDA CAND_L      ; Update the patrol data table
+        STA PATTAB,X    ; ..
+        LDA CAND_H      ; ..
+        STA PATTAB+1,X  ; ..
+        LDY #$00
+        LDA (CAND_L),Y  ; Record the new under character
+        STA PATTAB+3,X  ;   in the data table
+        PLA             ; Get the character for redraw
+        TAX             ; Prepare for placement
+        LDA CAND_L      ; ..
+        LDY CAND_H      ; ..
+        SEC             ; ..
+        JSR PLACE       ; ..
+P_AI_R: PLA
+        TAX
+        RTS        
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MOVEMENT SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; MVCD_U - Move candidate direction up
+; Move Candidate Up
 MVCD_U: LDA #$16
         JMP MVCDSB
 
-; MVCD_R - Move candidate direction right
+; Move Candidate Right
 MVCD_R: LDA #$01
         JMP MVCDAD
 
-; MVCD_D - Move candidate direction down
+; Move Candidate Down
 MVCD_D: LDA #$16
         JMP MVCDAD
 
-; MVCD_L - Move candidate direction left
+; Move Candidate Left
 MVCD_L: LDA #$01
         JMP MVCDSB
         
-; MVCDAD - Add to direction
+; Add to Candidate Direction
 MVCDAD: CLC
         ADC CAND_L
         STA CAND_L
@@ -447,7 +545,7 @@ MVCDAD: CLC
         INC CAND_H
 MVAD_R: RTS
 
-; MVCDSB - Subtract from direction
+; Subtract from Candidate Direction
 MVCDSB: STA SCRPAD
         LDA CAND_L
         SEC
@@ -457,37 +555,61 @@ MVCDSB: STA SCRPAD
         DEC CAND_H
 MVSB_R: RTS  
 
-; ISOPEN - Is the candidate space open? A character is stopped 
-; by a wall. Zero flag is clear if the candidate is open.
-;
-; Example
-;    JSR MVCD_R
-;    JSR ISOPEN
-;    BEQ not_open
-ISOPEN: LDY #$00
-        LDA #CH_WAL
-        CMP (CAND_L),Y
-        RTS
-        
-; CH4TUR - Check for turtle at candidate position. Zero flag
-; is set if there's a turtle.
-CH4TUR: TYA
-        PHA
-        LDY #$00
+; Is Blocked to Player
+; Is the candidate space open? A character is stopped by a wall
+; or a patrol.  Zero flag is set if the candidate is blocked.
+ISBLOC: LDY #$00
         LDA (CAND_L),Y
-        TAX
-        PLA
-        TYA
-        CPX #CH_TUR
-        BEQ CH4_R
-        CPX #CH_TUL
-        BEQ CH4_R
-        CPX #CH_TUU
-        BEQ CH4_R
-CH4_R:  RTS        
+        CMP #CH_WAL
+        BEQ OP_R
+        CMP #CH_PAR
+        BEQ OP_R
+        CMP #CH_PAL
+        BEQ OP_R
+        CMP #CH_PAU
+OP_R:   RTS
         
-; PLACE - Place the character on the screen at the specified
-; address.
+; Is Open to Patrol
+; Patrols can move along corridors and ladders only.
+; Anything else causes them to turn around. Zero flag
+; is set if the candidate is open.
+OPEN2P: LDY #$00
+        LDA (CAND_L),Y
+        JSR IS_COR
+O2P_R:  RTS  
+
+; Is Player
+IS_PLR: CMP #CH_PLR     ; Is it a right-facing player?
+        BEQ IS_P_R
+        CMP #CH_PLL     ; Is it a left-facing player?
+        BEQ IS_P_R
+        CMP #CH_PLU     ; Is it a climbing player?
+IS_P_R: RTS
+
+; Is Turtle
+IS_TUR: CMP #CH_TUR     ; Is it a right-facing turtle?
+        BEQ IS_T_R
+        CMP #CH_TUL     ; Is it a left-facing turtle?
+        BEQ IS_T_R
+        CMP #CH_TUU     ; Is it a climbing turtle?
+IS_T_R: RTS
+
+; Is Corridor
+IS_COR: CMP #CH_SPC     ; Is it a space?
+        BEQ IS_C_R
+        CMP #CH_LAD     ; Is it a ladder?
+IS_C_R: RTS
+        
+; Check for Turtle
+; Check for turtle at candidate position. Zero flag
+; is set if there's a turtle.
+CH4TUR: LDY #$00
+        LDA (CAND_L),Y
+        JSR IS_TUR
+        RTS        
+        
+; Place a Character
+; Place the character on the screen at the specified address.
 ;
 ; Preparations
 ;     A - Low byte of the screen address
@@ -501,10 +623,10 @@ PLACE:  STA DATA_L
         STA (DATA_L),Y
         LDA DATA_L
         LDY DATA_H      ; Falls through to CHRCOL
-        
-; CHRCOL - Set the color for the specified screen address. The
-; screen address is converted to the color character address
-; automatically.
+
+; Set Color at Address        
+; Set the color for the specified screen address. The screen
+; address is converted to the color address automatically.
 ;
 ; Preparations
 ;     A - Low byte of screen address
@@ -536,8 +658,34 @@ SETCOL: LDA COLMAP,X    ; Get the color for this character
         TAX
         PLA
         RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; GAME ACTION SUBROUTINES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Clear Beam
+CLBEAM: LDA FIRED
+        BEQ CLB_R
+        LDY #$00
+        STY FIRED
+        STY CAND_L
+        LDA SCPAGE
+        STA CAND_H
+CLB1:   JSR CHKBM
+        INC CAND_H
+        JSR CHKBM
+        DEC CAND_H
+        INY
+        BNE CLB1
+CLB_R:  RTS
+CHKBM:  LDA (CAND_L),Y
+        CMP #CH_BEA
+        BNE CHKB_R
+        LDA #CH_SPC
+        STA (CAND_L),Y
+CHKB_R: RTS
         
-; USCORE - Update the score and draw it on the screen
+; Update Score        
+; Update the score and draw it on the screen
 ;
 ; Preparations
 ;     A is the amount to add to the current score
@@ -550,37 +698,65 @@ SCDRAW: JSR HOME
         LDX SCOR_L
         LDA SCOR_H
         JSR PRTFIX
-        RTS       
-
-; SDATA - Set DATA pointer from candidate
-SDATA:  LDA CAND_L
-        STA DATA_L
-        LDA CAND_H
-        STA DATA_H
+        RTS  
+        
+; Reveal the Board
+; Usally a benefit of activating the terminal
+REVEAL: LDX #$00
+RL0:    TXA             ; Set up two character color calls...
+        CMP #$6D
+        BCC RP1         ; Ignore the top part of the screen
+        PHA
+        LDY SCPAGE
+        SEC
+        JSR CHRCOL      ; One for the first page of screen,
+        PLA
+RP1:    PHA
+        TXA
+        LDY SCPAGE
+        INY
+        SEC
+        JSR CHRCOL      ; and one for the other
+        PLA
+        TAX
+        INX
+        BNE RL0
         RTS
-       
-; RSCAND - Reset candidate from DATA pointer 
-RSCAND: LDA DATA_L
-        STA CAND_L
-        LDA DATA_H
-        STA CAND_H
-        RTS
+        
+; Read the Joystick
+; Return the direction byte in A. If the joystick has not
+; been moved this frame, also store the direction in the
+; JOYDIR register.
+READJS: LDA VIA1PA      ; Read VIA1 port
+        AND #$3C        ; Keep track of bits 2,3,4,5
+        STA SCRPAD
+        LDA VIA2PB      ; Combine with read of bit 7
+        AND #$80        ;   from VIA2-B
+        ORA SCRPAD
+        EOR #$BC        ; Flip each joystick bit in the
+                        ;   combined read byte, so that
+                        ;   on = 1
+        BEQ READ_R      ; If any directions are selected,
+                        ;   set the JOYDIR register
+        STA JOYDIR
+READ_R: RTS               
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MUSIC AND EFFECT PLAYER SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; M_PLAY - Start the music player
+; Start the music player
 M_PLAY: LDA #$01
         STA PLAY
         RTS
     
-; M_STOP - Stop the music player
+; Stop the music player
 M_STOP  LDA #$00
         STA VOICEM
         STA PLAY
         RTS
                     
-; NXNOTE - Rotates the 16-bit register one bit to the left
+; Play Next Note
+; Rotates the 16-bit register one bit to the left
 ; and plays the note
 NXNOTE: LDA #$01
         BIT PLAY
@@ -603,7 +779,8 @@ NROLL:  TXA
         STA VOLUME      ;   the windows of the spaceship
 NOTE_R: RTS
 
-; NXPITCH - Rotates the 8-bit sound effect register and
+; Play Next Sound Effect
+; Rotates the 8-bit sound effect register and
 ; plays the pitch      
 NXFX:   LDA FXLEN       ; Has the sound been launched?
         BEQ ENDFX       ; If unlaunched, kill voice and return
@@ -623,7 +800,7 @@ EROLL:  TXA
 ENDFX:  STA VOICEH
 FX_R:   RTS      
         
-; SOUND - Launch a sound effect
+; Launch Sound Effect
 ; Preparations
 ;     A - The sound effect index
 SOUND:  SEI             ; Don't play anything while setting up
@@ -645,11 +822,112 @@ SOUND:  SEI             ; Don't play anything while setting up
         LDX SCRPAD
         CLI             ; Go! 
         RTS
+        
+; Check Line-of-Sight for Patrol  
+; The patrol is looking in the direction it is facing,
+; for the player. If it sees the player, it will fire on 
+; the player if its beam is charged.
+;
+; Preparations:
+;     X contains the patrol table index
+;     Candidate contains the current patrol character
+LOS:    LDA PATTAB+2,X  ; Check on the charge of the
+        BEQ CHRGED      ;   patrol's beam. After a shot,
+        DEC PATTAB+2,X  ;   the patrol must wait a while
+        RTS             ;   before shooting again.
+CHRGED: LDA CAND_H
+        PHA
+        LDA CAND_L
+        PHA
+        LDY #$00
+        LDA (CAND_L),Y
+        STA SCRPAD
+LOSNX:  LDA SCRPAD      ; A is the character
+        CMP #CH_PAL     ; Determine facing direction
+        BNE LO_R
+        JSR MVCD_L
+        JMP LOS_CH
+LO_R:   CMP #CH_PAR
+        BNE LOS_R
+        JSR MVCD_R
+LOS_CH: LDY #$00
+        LDA (CAND_L),Y  ; A is now the next cell
+        CMP #CH_WAL     ; Is it a wall?
+        BEQ LOS_R       ; No line-of-sight found
+        JSR IS_PLR
+        BEQ FIBEAM
+        LDY HUNTER      ; Are the patrols in hunt mode?
+        BEQ LOSNX
+        JSR IS_TUR
+        BEQ FIBEAM
+        BNE LOSNX       ; Keep going until something is hit
+LOS_R:  PLA
+        STA CAND_L
+        PLA
+        STA CAND_H
+        RTS 
+FIBEAM: LDA #$10        ; Discharge the beam
+        SEC             ; ..
+        SBC GLEVEL      ; ..
+        STA PATTAB+2,X  ; ..
+        INC HUNTER      ; Activate Hunter mode
+        INC FIRED       ; Fire happened
+        LDA #$07
+        STA TEMPO       ; Make the music faster
+        LDA #FX_FIR
+        JSR SOUND       ; Launch the fire sound
+        PLA             ; Firing in the direction the patrol
+        STA CAND_L      ;   is facing. Reset the candidate
+        PLA
+        STA CAND_H
+        PHA
+        LDA CAND_L
+        PHA
+NXBEAM: LDA SCRPAD      ; Scratchpad is the character, for
+        CMP #CH_PAL     ;   determining the direction
+        BNE FIRE_R
+        JSR MVCD_L
+        JMP DRBEAM
+FIRE_R: JSR MVCD_R
+DRBEAM: LDY #$00
+        LDA (CAND_L),Y
+        PHA
+        LDX #CH_BEA     ; Draw the beam
+        LDA CAND_L      ; ..
+        LDY CAND_H      ; ..
+        SEC             ; ..
+        JSR PLACE       ; ..
+        PLA             ; Okay, what did we hit?
+        JSR IS_COR      ; Is it a corridor?
+        BEQ NXBEAM
+        JSR IS_PLR      ; Is it the player
+        BNE HITTUR
+        JSR DAMAGE
+        JMP LOS_R
+HITTUR: JSR IS_TUR      ; Is it a turtle?
+        BNE LOS_R
+        DEC TURTLS      ; A turtle was killed; reduce the count
+        JMP LOS_R       ; Anything else stops the beam
+      
+; Damage!
+; The player or a turtle have taken a hit
+; Falls through to DRAWPL
+DAMAGE: DEC HEALTH
+        LDA FX_DMG
+        JSR SOUND       ; Falls through to PLPLR
 
+; Place Player        
+PLPLR:  LDA PLR_L
+        LDY PLR_H
+        LDX #CH_PLR
+        SEC
+        JMP PLACE
+        
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MAZE SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; MAZE - Generate and display an 10x9 maze with the Sidewinder 
+; Generate Maze
+; Generates and displays an 10x9 maze with the Sidewinder 
 ; algorithm. The maze is 8x8, but takes up a 16x16 on the screen
 MAZE:   LDA #$6E        ; Fill the screen with walls, which
         STA SPOS_L      ;   will be removed to make the
@@ -661,7 +939,7 @@ L1:     LDA #CH_WAL
         INC SPOS_H
         STA (SPOS_L),Y
         DEC SPOS_H
-        LDA #WALCOL     ; Set the maze to wall color
+        LDA #$00        ; Set the maze to be hidden
         STA $9600,Y
         STA $9700,Y
         INY
@@ -684,7 +962,8 @@ LEVEL:  TXA
         BNE LEVEL
         RTS
         
-; DRLEV - Generate and draw a level of the sidewinder maze
+; Draw Level
+; Generates and draw a level of the sidewinder maze
 ;
 ; Preparations
 ;     X is the level number
@@ -702,6 +981,7 @@ NX_COR: STA REMAIN      ; Start a new corridor
         CPX #$00        ; Level 0 is a special case; it always
         BEQ DRAW        ;   has a single full-length corridor
         JSR RAND        ; Y = Length of the next corridor
+        AND #$0F        ; Limit corridors to eight cells
 DRAW:   JSR DRCORR      ; Draw the corridor
         STY SCRPAD      ; Update remaining cells by
         LDA REMAIN      ;   subtracting the size of the
@@ -710,8 +990,9 @@ DRAW:   JSR DRCORR      ; Draw the corridor
         BNE NX_COR      ; If any cells are left, keep going
         RTS
 
-; DRCORR - Draw a corridor. The starting cell of the corridor
-; is be 8 minus the number of remaining cells.
+; Draw Corridor
+; The starting cell of the corridor is 10 minus the number 
+; of remaining cells.
 ;
 ; Preparations
 ;     X is the level number
@@ -771,7 +1052,8 @@ RESET:  PLA             ; Start restoring things for return
         STA SPOS_L
         RTS   
 
-; RAND - Get a random number between 1 and 8. A contains the
+; Random Number
+; Gets a random number between 1 and 16. A contains the
 ; maximum value. The random number will be in Y.
 RAND:   STA SCRPAD
         DEC SCRPAD      ; Behind the scenes, look for a number
@@ -779,7 +1061,7 @@ RAND:   STA SCRPAD
                         ;   below, which compensates
         JSR BASRND
         LDA RNDNUM
-        AND #$07
+        AND #$0F
         CMP SCRPAD
         BCC E_RAND      ; Get another random number if this one
         BEQ E_RAND      ; is greater than the maximum
@@ -790,11 +1072,11 @@ E_RAND: TAY
         INY
         RTS
         
-        
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; SETUP SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; CHRSET - Set up custom character assets
+; Install Character Set
+; Set up custom character assets
 CHRSET: LDX #$00        ; Copy character ROM to RAM
 CL0:    LDA CHROM0,X
         STA CHRAM0,X
@@ -811,40 +1093,16 @@ CL1:    LDA CCHSET,X
         STA VICCR5
         RTS
         
-; WELCOM - Set up welcome screen
-WELCOM: LDA #SCRCOM     ; Set background color
-        STA BACKGD
-        LDA #<INTRO     ; Show the intro screen
-        LDY #>INTRO
-        JSR PRTSTR
-        RTS      
-
-; INITLV - Set up screen
+; Initialize Level
 INITLV: JSR CLSR
         JSR M_STOP
         JSR MAZE
-        LDA #$3A        ; Place the spaceship
-        STA SCRPAD
-        LDA #$00
-        STA DATA_L
-        LDA SCPAGE
-        STA DATA_H        
-        LDX #$03
-INITSH: LDY SHOFF,X
-        LDA SCRPAD
-        STA (DATA_L),Y
-        LDA #$0D
-        STA $9600,Y
-        INC SCRPAD
-        DEX
-        BPL INITSH
+        JSR SPSHIP
         LDA #$5A        ; Position the player at the top
         STA PLR_L       ;   of the maze.
         LDY SCPAGE
         STY PLR_H
-        LDX #CH_PLR
-        SEC
-        JSR PLACE       ; Place and color player
+        JSR PLPLR       ; Place the player
         LDA #CH_SPC
         STA UNDER       ; Start with a space under player
         LDY #$01        ; Populate the location terminal
@@ -854,9 +1112,11 @@ INITSH: LDY SHOFF,X
         STY TURTLS      ; .. Set the turtle count
         LDX #CH_TUR     ; ...
         JSR POPULA      ; ...
+        LDA #$00
+        STA PATRLS      ; Initialize patrol data table
         LDA GLEVEL      ; Populate some patrols
+        AND #$07        ; Limit patrols to eight (including INY)
         TAY             ; ...
-        INY             ; ...
         INY             ; ...
         LDX #CH_PAL     ; ...
         JSR POPULA      ; ...
@@ -864,6 +1124,7 @@ INITSH: LDY SHOFF,X
         STA TEMPO       ; Set the music tempo
         STA MUCD
         LDA GLEVEL
+        AND #$0F        ; Limit to 16 musical scores
         ASL             ; Multiply level by 2 for score index
         TAX
         LDA SCORES,X    ; Set the musical score
@@ -871,16 +1132,26 @@ INITSH: LDY SHOFF,X
         LDA SCORES+1,X
         STA REG_H
         LDA #$00
+        STA HUNTER      ; Reset Hunter flag
         JSR USCORE      ; Display current score
         JSR M_PLAY      ; Start the music
-        LDA #SD_LEV
-        JSR SOUND       ; Launch level start sound
-        RTS 
+        LDA GLEVEL      ; After so many levels, start
+        CMP #$08        ;   all patrols in Hunter mode
+        BCC INIT_R      ;   to raise the difficulty
+        INC HUNTER
+        DEC TEMPO       ; And also make the music faster
+INIT_R: RTS 
 
-; SETHW - Some hardware setup. This only needs to be done
-; once.
-SETHW:  LDA #$08        ; Make the screen black during init
+; Setup Hardware
+SETHW:  LDA #SCRCOM     ; Set background color
         STA BACKGD
+        LDA #$4F        ; Set volume and spaceship port color
+        STA VOLUME
+        LDA #$00        ; Initialize sound registers
+        STA VOICEL      ; ..
+        STA VOICEM      ; ..
+        STA VOICEH      ; ..
+        STA NOISE       ; ..
         LDA #$7F        ; Set DDR to read East
         STA VIA2DD
         LDA CASECT      ; Disable Commodore-Shift
@@ -894,10 +1165,12 @@ SETHW:  LDA #$08        ; Make the screen black during init
         STA ISR
         LDA #>CSTISR
         STA ISR+1
+        LDA #SPEED      ; Initialize frame countdown before
+        STA FRCD        ;   ISR is started
         CLI
         RTS
 
-; POPULA - Populate the maze with some characters
+; Populate Maze
 ;
 ; Preparations
 ;     X is the character
@@ -951,19 +1224,83 @@ PLCNEW  PLA
         TAX
         LDA DATA_L
         LDY DATA_H
-        SEC             ; Hide all the populated objects
+        CPX #CH_PAL     ; If placing a patrol,
+        BNE PLL0        ;
+        JSR ADDPAT      ;   add it to the patrol data table
+PLL0:   CLC             ; Hide all the populated objects
         JSR PLACE       ; Place the character in X, and
         PLA             ; Decrement the character number
         TAY             ;   counter. 
         DEY             ; Any more characters to place?
         BNE POPULA
         RTS
+
+; Draw the Spaceship        
+SPSHIP: LDA #$3A
+        STA SCRPAD
+        LDA #$00
+        STA DATA_L
+        LDA SCPAGE
+        STA DATA_H        
+        LDX #$03
+SSL0:   LDY SHOFF,X
+        LDA SCRPAD
+        STA (DATA_L),Y
+        LDA #$0F
+        STA $9600,Y
+        INC SCRPAD
+        DEX
+        BPL SSL0
+        RTS
         
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; GAME DATA MANAGEMENT SUBROUTINES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Add Patrol
+ADDPAT: PHA
+        TYA
+        PHA
+        TXA
+        PHA
+        LDA PATRLS
+        ASL
+        ASL             ; Allocate four bytes per Patrol
+        TAX             ; Actual table index
+        LDA DATA_L
+        STA PATTAB,X
+        LDA DATA_H
+        STA PATTAB+1,X
+        LDA #$0F        
+        STA PATTAB+2,X  ; Set recharge time to 15 cycles
+        INC PATRLS
+        LDA #CH_SPC
+        STA PATTAB+3,X  ; Set space under the patrol
+        PLA
+        TAX
+        PLA
+        TAY
+        PLA
+        RTS
+  
+; Set DATA Pointer from Candidate
+SDATA:  LDA CAND_L
+        STA DATA_L
+        LDA CAND_H
+        STA DATA_H
+        RTS
+       
+; Reset Candidate from DATA pointer 
+RSCAND: LDA DATA_L
+        STA CAND_L
+        LDA DATA_H
+        STA CAND_H
+        RTS
+                
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA AND TABLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INTRO:  .asc "TRBO- TURTLE RESCUEBOT"
-        .asc "   . JASON JUSTIAN",$0d
+INTRO:  .asc "TRBO. TURTLE RESCUEBOT"
+        .asc "   / JASON JUSTIAN",$0d
         .asc "!   FIRE TO START    %",$00
         
 ENDTXT: .asc "GAME OVER",$00
@@ -981,9 +1318,9 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $00,$00,$44,$aa,$11,$00,$00,$00 ; Beam
         .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
         .byte $3c,$24,$3c,$00,$3c,$7e,$18,$3c ; LocationTerminal
-        .byte $00,$14,$14,$00,$00,$18,$18,$00 ; Colon
+        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
+        .byte $00,$14,$14,$00,$00,$14,$14,$00 ; Colon
         .byte $3c,$42,$99,$a1,$a1,$99,$42,$3c ; Copyright
-        .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff ; Wall
         .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
         .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
         .byte $7f,$03,$03,$7f,$40,$40,$7f,$00 ; 2
@@ -1000,11 +1337,11 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship4
 
 ; Color map for the above characters, indexed from SPACE
-COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$04
+COLMAP: .byte $06,$05,$05,$05,$07,$07,$07,$04
         .byte $04,$04,$07,$01,$02,$01
 
 ; Spaceship part offsets        
-SHOFF:  .byte $43,$42,$2C,$2D       
+SHOFF:  .byte $59,$58,$42,$43      
 
 ; Curated musical scores for the shift register player, in
 ; high byte/low byte order... so, backwards.   
@@ -1025,7 +1362,9 @@ SCORES: .byte $32,$23
 ;   (1) First byte is the starting shift register value
 ;   (2) High nybble of second byte is the length in jiffies x 16
 ;   (3) Low nybble of second byte is refresh rate in jiffies
-FXTYPE: .byte $55,$12                       ; Fire sound
-        .byte $01,$24                       ; Turtle rescue
+FXTYPE: .byte $2F,$34                       ; Start the Game
+        .byte $55,$63                       ; Fire Sound
+        .byte $03,$24                       ; Turtle rescue
         .byte $23,$62                       ; Terminal Activated
-        .byte $2F,$34
+        .byte $4A,$11                       ; Unfollow
+        .byte $55,$F8                       ; Damaged
