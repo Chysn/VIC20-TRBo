@@ -15,6 +15,8 @@ LAUNCH: .byte $0b,$04,$01,$00,$9e,$34,$31,$31
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; System Resources
 ISR    = $0314          ; ISR vector
+SCREEN = $1E00          ; Screen character memory (unexpanded)
+COLOR  = $9600          ; Screen color memory (unexpanded)
 SYSISR = $EABF          ; System ISR   
 VICCR5 = $9005          ; Character map register
 VOICEH = $900C          ; High sound register
@@ -24,7 +26,6 @@ NOISE  = $900D          ; Noise register
 VOLUME = $900E          ; Sound volume register
 BACKGD = $900F          ; Background color
 BASRND = $E094          ; Routine for BASIC's RND() function
-SCPAGE = $0288          ; Screen location start
 RNDNUM = $8C            ; Result storage location for RND()
 VIA1DD = $9113          ; Data direction register for joystick
 VIA1PA = $9111          ; Joystick port (up, down, left, fire)
@@ -32,7 +33,7 @@ VIA2DD = $9122          ; Data direction register for joystick
 VIA2PB = $9120          ; Joystick port (for right)
 CLSR   = $E55F          ; Clear screen/home
 HOME   = $E581          ; Home cursor
-COLOR  = $0286          ; Text color
+TCOLOR = $0286          ; Text color
 PRTSTR = $CB1E          ; Print from data (Y,A)
 CHROM0 = $8000          ; Character ROM
 CHROM1 = $8100          ; Character ROM
@@ -40,8 +41,7 @@ CASECT = $0291          ; Disable Commodore case
 PRTFIX = $DDCD          ; Decimal display routine
 
 ; Constants
-SCRCOM = $6E            ; Maze color
-SCRCOT = $3B            ; Top color
+SCRCOM = $08            ; Maze color
 TXTCOL = $01            ; Text color
 SPEED  = $0E            ; Game speed, in jiffies of delay
 CHRAM0 = $1C00          ; Custom Characters, Page 0
@@ -70,6 +70,7 @@ CH_BEA = $2A            ; Beam (asterisk)
 CH_LAD = $2B            ; Ladder (plus)
 CH_TER = $2C            ; Location Terminal (comma)
 CH_WAL = $2D            ; Wall (minus)
+CH_HLT = $2E            ; Health (period)
                   
 ; Music Player                  
 REG_L  = $033C          ; \ Music shift register
@@ -77,6 +78,7 @@ REG_H  = $033D          ; /
 TEMPO  = $033E          ; Tempo (lower numbers are faster)
 MUCD   = $033F          ; Tempo countdown
 PLAY   = $0340          ; Music is playing
+FADE   = $0341          ; Fadeout volume
 
 ; Sound Effects Player
 REG_FX = $034E          ; Sound effects register
@@ -103,6 +105,7 @@ UNFOLL = $034D          ; Unfollow if fire is pressed
 HUNTER = $0352          ; Hunters will attack turtles
 FIRED  = $0353          ; A beam was fired
 HEALTH = $0354          ; Player health
+LOSDIR = $0355          ; Line-of-sight direction
 PLR_L  = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; / Screen position (maze builder)
 CAND_L = $03            ; \ Candidate direction
@@ -132,8 +135,8 @@ DATA_H = $0A            ; /
 INIT:   JSR SETHW       ; Set up hardware features
         JSR CHRSET      ; Install the custom characters
         
-; Intro Screen
-GMOVER: JSR CLSR        ; Clear screen
+; Welcome Screen
+WELCOM: JSR CLSR        ; Clear screen
         JSR MAZE        ; Draw Maze
         LDA #<INTRO     ; Show the intro screen
         LDY #>INTRO     ; ..
@@ -143,6 +146,8 @@ GMOVER: JSR CLSR        ; Clear screen
         JSR POPULA      ; ...
         JSR REVEAL      ; Reveal the board
         JSR SPSHIP
+        LDA #$00
+        JSR USCORE      ; Show the last score
 WAIT:   JSR READJS
         AND #$20        ; Wait for the fire button
         BEQ WAIT
@@ -152,13 +157,13 @@ STGAME: LDA #$00
         STA SCOR_L
         STA SCOR_H
         STA GLEVEL
+        STA FADE
         JSR SOUND
-        LDA #$04
+        LDA #$08
         STA HEALTH
 
 ; Start a new level
 STLEV:  JSR INITLV
-        JSR REVEAL      ; Diagnostic - remove when done
 
 ; Main loop
 MAIN:   LDA #$00        ; Reset joystick
@@ -173,11 +178,24 @@ FRWAIT: JSR READJS      ; Read joystick
         JSR NPC_MV      ; Process non-player movement
         LDA TURTLS      ; Has the level been completed?
         BEQ LVLUP
+        LDA HEALTH      ; Is the player still alive?
+        BEQ GAMOVR
         JMP MAIN
 
-LVLUP:  INC GLEVEL
+LVLUP:  LDA #$0F        ; Fade out the music
+        STA FADE
         JSR INITLV
+        INC GLEVEL      ; Go to the next level
         JMP MAIN
+        
+GAMOVR: JSR HOME
+        LDA #<ENDTXT    ; Show the intro screen
+        LDY #>ENDTXT    ; ..
+        JSR PRTSTR      ; ..
+        LDA #$0F
+        STA TEMPO       ; Slow the music down
+        STA FADE        ; Fade out music
+        JMP WAIT
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; INTERRUPT SERVICE ROUTINE
@@ -201,15 +219,12 @@ PL_MV:  LDY #$00
         LDA JOYDIR
         BNE SETC        ; Do nothing if no direction set
         RTS
-SETC:   LDA PLR_L       ; Set the candidate direction
-        STA CAND_L
-        LDA PLR_H
-        STA CAND_H
+SETC:   JSR PLR2C       ; Move player position to candidate      
 JY_U:   LDA #$04        ; Handle up
         BIT JOYDIR
         BEQ JY_R
         JSR MVCD_U      ; Move candidate up
-        LDA SCPAGE      ; If the candidate is past the
+        LDA #>SCREEN    ; If the candidate is past the
         CMP CAND_H      ;   top of the play area, then
         BNE JY_UC       ;   leave the handler routine
         LDA #$58
@@ -245,10 +260,10 @@ JY_L:   LDA #$10        ; Handle left
         STA DIRBLK
         LDX #CH_PLL
         LDA CAND_H      ; If the candidate is off the left
-        CMP SCPAGE      ;   side of the screen, then
+        CMP #>SCREEN    ;   side of the screen, then
         BNE JY_F        ;   restore the candidate back
         LDA CAND_L      ;   to the curent player
-        CMP #$58        ;   coordinates
+        CMP #$59        ;   coordinates
         BNE JY_F
         RTS
 JY_F:   LDA #$20        ; Handle fire
@@ -281,28 +296,26 @@ DOMOVE: JSR ISBLOC      ; Is the candidate space open?
         LDA #FX_TER
         JSR SOUND       ; Launch the terminal sound
         JSR REVEAL      ; Reveal the board
+        LDA #$FA
+        JSR USCORE      ; Worth 250 points
 PL_PL:  PLA             ; Place the player
         TAX             ; ..
         LDA CAND_L      ; ..
         LDY CAND_H      ; ..
         SEC             ; ..
         JSR PLACE       ; ..
-        
         LDA PLR_H       ; Store the player position temporarily
         PHA             ;   so that we have the previous
         LDA PLR_L       ;   position after the update
         PHA
-        
         LDA CAND_L      ; Update player position
         STA PLR_L
         LDA CAND_H
         STA PLR_H
-        
         PLA             ; Put the previous position into 
         STA CAND_L      ;   candidate so that we can look around
         PLA             ;   for a turtle chain
         STA CAND_H
-        
         LDA UNFOLL      ; If the fire button is down, then a
         BNE MV_R        ;   turtle chain can't be started
         LDY #$00        ; If there's a turtle in the previous
@@ -314,13 +327,14 @@ PL_PL:  PLA             ; Place the player
         CMP #CH_TUU
         BEQ MV_R
         JSR TURCHN      ; Recursively find turtles for a chain
-MV_R:   RTS
+MV_R:   JSR EXPLOR      ; Explore surroundings
+        RTS
        
 ; NPC Move
 ; Move non-player characters (turtles and patrols)        
-NPC_MV: LDA #$5A        ; First, look for a turtle near the
+NPC_MV: LDA #$5B        ; First, look for a turtle near the
         STA CAND_L      ;   spaceship. This turtle will be
-        LDA SCPAGE      ;   rescued. Rescue involves
+        LDA #>SCREEN    ;   rescued. Rescue involves
         STA CAND_H      ;   (1) Removing the turtle
         LDY #$00        ;   (2) Adding to the score    
         LDA (CAND_L),Y  ;   (3) Playing a sound
@@ -454,7 +468,7 @@ PAT_AI: TXA
         JSR LOS         ; Check line of sight
         LDY #$00        
 IA_U:   JSR MVCD_U
-        LDA SCPAGE      ; If the candidate is past the
+        LDA #>SCREEN    ; If the candidate is past the
         CMP CAND_H      ;   top of the play area, then
         BNE IA_UC       ;   go to the next option
         LDA #$58
@@ -562,11 +576,7 @@ ISBLOC: LDY #$00
         LDA (CAND_L),Y
         CMP #CH_WAL
         BEQ OP_R
-        CMP #CH_PAR
-        BEQ OP_R
-        CMP #CH_PAL
-        BEQ OP_R
-        CMP #CH_PAU
+        JSR IS_PAT
 OP_R:   RTS
         
 ; Is Open to Patrol
@@ -593,6 +603,14 @@ IS_TUR: CMP #CH_TUR     ; Is it a right-facing turtle?
         BEQ IS_T_R
         CMP #CH_TUU     ; Is it a climbing turtle?
 IS_T_R: RTS
+
+; Is Patrol
+IS_PAT: CMP #CH_PAR     ; Is it a right-facing patrol?
+        BEQ ISPA_R
+        CMP #CH_PAL     ; Is it a left-facing patrol?
+        BEQ ISPA_R
+        CMP #CH_PAU     ; Is it a climbing patrol?
+ISPA_R: RTS
 
 ; Is Corridor
 IS_COR: CMP #CH_SPC     ; Is it a space?
@@ -645,7 +663,7 @@ CHRCOL: STA DATA_L
         TAX             ;   and store it in X for later
         LDA DATA_H      ; Subtract the starting page of screen
         SEC             ;   memory from the specified page to
-        SBC SCPAGE      ;   get the screen page offset
+        SBC #>SCREEN    ;   get the screen page offset
         CLC
         ADC #$96        ; Add that offset to color memory so
         STA DATA_H      ;   data now points to color location
@@ -658,6 +676,13 @@ SETCOL: LDA COLMAP,X    ; Get the color for this character
         TAX
         PLA
         RTS
+        
+; Reveal character at the candidate       
+CANREV: LDA CAND_L
+        LDY CAND_H
+        SEC
+        JSR CHRCOL
+        RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ACTION SUBROUTINES
@@ -668,7 +693,7 @@ CLBEAM: LDA FIRED
         LDY #$00
         STY FIRED
         STY CAND_L
-        LDA SCPAGE
+        LDA #>SCREEN
         STA CAND_H
 CLB1:   JSR CHKBM
         INC CAND_H
@@ -699,7 +724,52 @@ SCDRAW: JSR HOME
         LDA SCOR_H
         JSR PRTFIX
         RTS  
+
+; Show Health Status        
+SHOWHL: LDY #$00
+NXHRT:  LDA #CH_HLT
+        CPY HEALTH
+        BCC HLPOS
+        LDA #CH_SPC
+HLPOS:  STA SCREEN+12,Y
+        LDA #$02
+        STA COLOR+12,Y
+        INY
+        CPY #$0A
+        BNE NXHRT
+        RTS
         
+; Explore
+; Reveal the area around the player
+EXPLOR: JSR PLR2C       ; Set the candidate position
+        JSR REV_UD
+EX_R:   JSR MVCD_R      ; First, explore to the right
+        JSR REV_UD      ; Reveal up and down here
+        LDY #$00
+        LDA (CAND_L),Y
+        CMP #CH_SPC
+        BEQ EX_R        ; Explore until something is hit
+        JSR PLR2C
+EX_L:   JSR MVCD_L
+        JSR REV_UD      ; Reveal up and down from here
+        LDY #$00
+        LDA (CAND_L),Y
+        CMP #CH_SPC
+        BEQ EX_L
+        JSR SPSHIP
+        RTS
+                
+; Reveal Up/Down
+; Reveal the candidate, and up and down from the candidate
+REV_UD: JSR CANREV      ; Show the current candidate
+        JSR MVCD_U
+        JSR CANREV      ; Then one space up
+        JSR MVCD_D
+        JSR MVCD_D
+        JSR CANREV      ; Then one space down
+        JSR MVCD_U      ; And restore
+        RTS
+                
 ; Reveal the Board
 ; Usally a benefit of activating the terminal
 REVEAL: LDX #$00
@@ -707,14 +777,13 @@ RL0:    TXA             ; Set up two character color calls...
         CMP #$6D
         BCC RP1         ; Ignore the top part of the screen
         PHA
-        LDY SCPAGE
+        LDY #>SCREEN
         SEC
         JSR CHRCOL      ; One for the first page of screen,
         PLA
 RP1:    PHA
         TXA
-        LDY SCPAGE
-        INY
+        LDY #>SCREEN+$0100
         SEC
         JSR CHRCOL      ; and one for the other
         PLA
@@ -747,12 +816,28 @@ READ_R: RTS
 ; Start the music player
 M_PLAY: LDA #$01
         STA PLAY
+        LDA #$00
+        STA FADE
         RTS
     
 ; Stop the music player
-M_STOP  LDA #$00
+M_STOP: LDA #$00
         STA VOICEM
+        STA VOICEL
         STA PLAY
+        RTS
+
+; Select Music
+; Set a musical score 
+;
+; Preparations
+;     A is the score index
+MUSIC:  ASL             ; Multiply level by 2 for score index
+        TAX
+        LDA SCORES,X    ; Set the musical score
+        STA REG_L
+        LDA SCORES+1,X
+        STA REG_H
         RTS
                     
 ; Play Next Note
@@ -775,8 +860,18 @@ NROLL:  TXA
         STA REG_L
         ORA #$80
         STA VOICEM
-        LDA REG_H       ; This will set the volume and flash
-        STA VOLUME      ;   the windows of the spaceship
+        LDA FADE        ; Fade is a volume override. If fade is
+        BEQ VOLREG      ;   set, it will decrease every note,
+        DEC FADE        ;   and the music will stop when it
+        BNE VOL         ;   reaches zero
+        JMP M_STOP
+VOLREG: LDA REG_H       ; Set the music volume and flash
+VOL:    STA VOLUME      ;   the windows of the spaceship
+        LDA HUNTER      ; If the patrols are in hunter mode,
+        BEQ NOTE_R      ;   play a low counterpoint
+        LDA REG_H
+        ASL
+        STA VOICEL
 NOTE_R: RTS
 
 ; Play Next Sound Effect
@@ -841,8 +936,8 @@ CHRGED: LDA CAND_H
         PHA
         LDY #$00
         LDA (CAND_L),Y
-        STA SCRPAD
-LOSNX:  LDA SCRPAD      ; A is the character
+        STA LOSDIR
+LOSNX:  LDA LOSDIR      ; A is the character
         CMP #CH_PAL     ; Determine facing direction
         BNE LO_R
         JSR MVCD_L
@@ -853,9 +948,11 @@ LO_R:   CMP #CH_PAR
 LOS_CH: LDY #$00
         LDA (CAND_L),Y  ; A is now the next cell
         CMP #CH_WAL     ; Is it a wall?
-        BEQ LOS_R       ; No line-of-sight found
-        JSR IS_PLR
-        BEQ FIBEAM
+        BEQ LOS_R       ;   No line-of-sight found
+        JSR IS_PAT      ; Is it a patrol?
+        BEQ LOS_R       ;   They don't fire on each other
+        JSR IS_PLR      ; Is it the player?
+        BEQ FIBEAM      ;   Yeah, shoot that!
         LDY HUNTER      ; Are the patrols in hunt mode?
         BEQ LOSNX
         JSR IS_TUR
@@ -883,7 +980,7 @@ FIBEAM: LDA #$10        ; Discharge the beam
         PHA
         LDA CAND_L
         PHA
-NXBEAM: LDA SCRPAD      ; Scratchpad is the character, for
+NXBEAM: LDA LOSDIR      ; LOSDIR is the character, for
         CMP #CH_PAL     ;   determining the direction
         BNE FIRE_R
         JSR MVCD_L
@@ -891,6 +988,8 @@ NXBEAM: LDA SCRPAD      ; Scratchpad is the character, for
 FIRE_R: JSR MVCD_R
 DRBEAM: LDY #$00
         LDA (CAND_L),Y
+        CMP #CH_WAL
+        BEQ LOS_R       ; Stop at a wall
         PHA
         LDX #CH_BEA     ; Draw the beam
         LDA CAND_L      ; ..
@@ -912,7 +1011,10 @@ HITTUR: JSR IS_TUR      ; Is it a turtle?
 ; Damage!
 ; The player or a turtle have taken a hit
 ; Falls through to DRAWPL
-DAMAGE: DEC HEALTH
+DAMAGE: LDA HEALTH
+        BEQ PLPLR
+        DEC HEALTH
+        JSR SHOWHL      ; Show health
         LDA FX_DMG
         JSR SOUND       ; Falls through to PLPLR
 
@@ -931,7 +1033,7 @@ PLPLR:  LDA PLR_L
 ; algorithm. The maze is 8x8, but takes up a 16x16 on the screen
 MAZE:   LDA #$6E        ; Fill the screen with walls, which
         STA SPOS_L      ;   will be removed to make the
-        LDA SCPAGE      ;   maze.
+        LDA #>SCREEN    ;   maze.
         STA SPOS_H
         LDY #$00
 L1:     LDA #CH_WAL
@@ -940,13 +1042,13 @@ L1:     LDA #CH_WAL
         STA (SPOS_L),Y
         DEC SPOS_H
         LDA #$00        ; Set the maze to be hidden
-        STA $9600,Y
-        STA $9700,Y
+        STA COLOR,Y
+        STA COLOR+$0100,Y
         INY
         BNE L1
         LDA #$59        ; Offset for the maze
         STA SPOS_L
-        LDA SCPAGE
+        LDA #>SCREEN
         STA SPOS_H
         LDX #$00
         INC SPOS_L      ; Move to the next space to
@@ -1100,7 +1202,7 @@ INITLV: JSR CLSR
         JSR SPSHIP
         LDA #$5A        ; Position the player at the top
         STA PLR_L       ;   of the maze.
-        LDY SCPAGE
+        LDY #>SCREEN
         STY PLR_H
         JSR PLPLR       ; Place the player
         LDA #CH_SPC
@@ -1125,16 +1227,13 @@ INITLV: JSR CLSR
         STA MUCD
         LDA GLEVEL
         AND #$0F        ; Limit to 16 musical scores
-        ASL             ; Multiply level by 2 for score index
-        TAX
-        LDA SCORES,X    ; Set the musical score
-        STA REG_L
-        LDA SCORES+1,X
-        STA REG_H
+        JSR MUSIC       ; Select the score
         LDA #$00
         STA HUNTER      ; Reset Hunter flag
         JSR USCORE      ; Display current score
+        JSR SHOWHL      ; Display current health
         JSR M_PLAY      ; Start the music
+        JSR EXPLOR      ; Explore the top level
         LDA GLEVEL      ; After so many levels, start
         CMP #$08        ;   all patrols in Hunter mode
         BCC INIT_R      ;   to raise the difficulty
@@ -1152,6 +1251,8 @@ SETHW:  LDA #SCRCOM     ; Set background color
         STA VOICEM      ; ..
         STA VOICEH      ; ..
         STA NOISE       ; ..
+        STA SCOR_H      ; Clear score for intro screen
+        STA SCOR_L      ; ..
         LDA #$7F        ; Set DDR to read East
         STA VIA2DD
         LDA CASECT      ; Disable Commodore-Shift
@@ -1159,7 +1260,7 @@ SETHW:  LDA #SCRCOM     ; Set background color
         STA CASECT
         JSR M_STOP      ; Turn off music playing
         LDA #TXTCOL
-        STA COLOR
+        STA TCOLOR
         SEI             ; Install the custom ISR
         LDA #<CSTISR
         STA ISR
@@ -1181,7 +1282,7 @@ POPULA: TYA
         PHA
         LDA #$27
         STA DATA_L
-        LDA SCPAGE
+        LDA #>SCREEN
         STA DATA_H
         CPX #CH_TER     ; If the character is a computer
         BNE RNDY        ;   terminal, its Y position is not
@@ -1235,19 +1336,15 @@ PLL0:   CLC             ; Hide all the populated objects
         BNE POPULA
         RTS
 
-; Draw the Spaceship        
+; Draw the f        
 SPSHIP: LDA #$3A
         STA SCRPAD
-        LDA #$00
-        STA DATA_L
-        LDA SCPAGE
-        STA DATA_H        
         LDX #$03
 SSL0:   LDY SHOFF,X
         LDA SCRPAD
-        STA (DATA_L),Y
+        STA SCREEN,Y
         LDA #$0F
-        STA $9600,Y
+        STA COLOR,Y
         INC SCRPAD
         DEX
         BPL SSL0
@@ -1295,15 +1392,22 @@ RSCAND: LDA DATA_L
         LDA DATA_H
         STA CAND_H
         RTS
+        
+; Set Candidate from Player position
+PLR2C:  LDA PLR_L
+        STA CAND_L
+        LDA PLR_H
+        STA CAND_H
+        RTS
                 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA AND TABLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INTRO:  .asc "TRBO. TURTLE RESCUEBOT"
+INTRO:  .asc $0d,"TRBO  TURTLE RESCUEBOT"
         .asc "   / JASON JUSTIAN",$0d
-        .asc "!   FIRE TO START    %",$00
+        .asc "  ! FIRE TO START %   ",$00
         
-ENDTXT: .asc "GAME OVER",$00
+ENDTXT: .asc $0d,"    ' GAME OVER (     ",$00
 
 ; Custom character set        
 CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
@@ -1315,11 +1419,11 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $00,$3c,$37,$3c,$3c,$00,$66,$66 ; PatrolR
         .byte $00,$3c,$ec,$3c,$3c,$00,$66,$66 ; PatrolL
         .byte $00,$18,$18,$3c,$7e,$00,$24,$24 ; PatrolUp/Down
-        .byte $00,$00,$44,$aa,$11,$00,$00,$00 ; Beam
+        .byte $00,$30,$cc,$c0,$03,$33,$0c,$00 ; Beam
         .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
-        .byte $3c,$24,$3c,$00,$3c,$7e,$18,$3c ; LocationTerminal
+        .byte $00,$00,$aa,$be,$aa,$28,$82,$82 ; LocationTerminal
         .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
-        .byte $00,$14,$14,$00,$00,$14,$14,$00 ; Colon
+        .byte $00,$6c,$de,$be,$be,$5c,$28,$10 ; Health
         .byte $3c,$42,$99,$a1,$a1,$99,$42,$3c ; Copyright
         .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
         .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
@@ -1337,34 +1441,38 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship4
 
 ; Color map for the above characters, indexed from SPACE
-COLMAP: .byte $06,$05,$05,$05,$07,$07,$07,$04
-        .byte $04,$04,$07,$01,$02,$01
+COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
+        .byte $03,$03,$0F,$02,$09,$04,$02
 
 ; Spaceship part offsets        
 SHOFF:  .byte $59,$58,$42,$43      
 
-; Curated musical scores for the shift register player, in
-; high byte/low byte order... so, backwards.   
-SCORES: .byte $32,$23
-        .byte $12,$54
-        .byte $d2,$2b
-        .byte $ff,$2f
-        .byte $54,$56
-        .byte $18,$1f
-        .byte $b3,$2a
-        .byte $c6,$78
-        .byte $54,$53
-        .byte $19,$84
-        .byte $19,$29
+; Curated musical scores for the shift register player.  
+SCORES: .word $2332
+        .word $5412
+        .word $2bd2
+        .word $8842
+        .word $2fff
+        .word $5654
+        .word $1f18
+        .word $2aB3
+        .word $78c6
+        .word $5354
+        .word $8419
+        .word $2919
+        .word $1331
+        .word $adad
+        .word $020e
+        .word $2962
 
 ; Sound effects for the sound effects player
 ; Each effect has three parameters
 ;   (1) First byte is the starting shift register value
 ;   (2) High nybble of second byte is the length in jiffies x 16
 ;   (3) Low nybble of second byte is refresh rate in jiffies
-FXTYPE: .byte $2F,$34                       ; Start the Game
+FXTYPE: .byte $2f,$34                       ; Start the Game
         .byte $55,$63                       ; Fire Sound
         .byte $03,$24                       ; Turtle rescue
         .byte $23,$62                       ; Terminal Activated
-        .byte $4A,$11                       ; Unfollow
-        .byte $55,$F8                       ; Damaged
+        .byte $4a,$11                       ; Unfollow
+        .byte $fb,$72                       ; Damaged
