@@ -877,7 +877,7 @@ D_U:    CMP #$01
         JMP DO_DIG
 D_R:    CMP #$02
         BNE D_D
-        JSR MCRS_D
+        JSR MCRS_R
         JMP DO_DIG
 D_D     CMP #$04
         BNE D_L
