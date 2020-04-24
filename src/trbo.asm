@@ -102,8 +102,6 @@ FXCD   = $0350          ; Sound effects countdown
 FXCDRS = $0351          ; Countdown reset value
 
 ; Maze Builder
-SPOS_L = $01            ; \ Screen position (maze builder)
-SPOS_H = $02            ; / Player screen position (play)
 FRCD   = $05            ; Frame countdown
 REMAIN = $0344          ; Remaining cells for the current level
 
@@ -121,7 +119,7 @@ FIRED  = $0353          ; A beam was fired
 HEALTH = $0354          ; Player health
 LOSDIR = $0355          ; Line-of-sight direction
 PLAYER = $01            ; \ Player screen position (play)
-PLR_H  = $02            ; / Screen position (maze builder)
+PLR_H  = $02            ; /
 CURSOR = $03            ; \ CURSOR direction
 CRSR_H = $04            ; /
 
@@ -195,13 +193,7 @@ FRWAIT: JSR READJS      ; Read joystick
         JMP MAIN
 
 ; Level Up
-LVLUP:  LDA #$0F        ; Fade out the music
-        STA FADE        ; ..
-        STA TIMER       ; Set the jiffy counter
-        LDA #$8F
-DELAY:  CMP TIMER
-        BNE DELAY
-        LDA #$0E
+LVLUP:  LDA #$0E
         STA DATA_L
         LDA #>SCREEN
         STA DATA_H
@@ -225,6 +217,12 @@ BDEL:   CMP TIMER
         BNE BONUS
         PLA             ; Restore health after bonus
         STA HEALTH
+        LDA #$0F        ; Fade out the music
+        STA FADE        ; ..
+        STA TIMER       ; Set the jiffy counter
+        LDA #$8F
+DELAY:  CMP TIMER
+        BNE DELAY
         INC GLEVEL      ; Advance the level
         JSR INITLV      ; Initialize the next level
         JMP MAIN
@@ -275,14 +273,14 @@ SETC:   JSR PLR2C       ; Move player position to CURSOR
 JY_U:   LDA #$04        ; Handle up
         BIT JOYDIR
         BEQ JY_R
-        JSR MCRSRU      ; Move CURSOR up
+        JSR MCRS_U      ; Move CURSOR up
         LDA #>SCREEN    ; If the CURSOR is past the
         CMP CRSR_H      ;   top of the play area, then
         BNE JY_UC       ;   leave the handler routine
         LDA #$58
         CMP CURSOR
         BCC JY_UC
-        JSR MCRSRD
+        JSR MCRS_D
         RTS
 JY_UC:  LDA #UP         ; Upward movement may proceed
         STA DIRBLK
@@ -291,7 +289,7 @@ JY_UC:  LDA #UP         ; Upward movement may proceed
 JY_R:   LDA #$80        ; Handle right
         BIT JOYDIR
         BEQ JY_D
-        JSR MCRSRR      ; Move CURSOR right
+        JSR MCRS_R      ; Move CURSOR right
         LDA #RIGHT
         STA DIRBLK
         LDX #CH_PLR
@@ -299,7 +297,7 @@ JY_R:   LDA #$80        ; Handle right
 JY_D:   LDA #$08        ; Handle down
         BIT JOYDIR
         BEQ JY_L
-        JSR MCRSRD      ; Move CURSOR down
+        JSR MCRS_D      ; Move CURSOR down
         LDA #DOWN
         STA DIRBLK
         LDX #CH_PLU
@@ -307,7 +305,7 @@ JY_D:   LDA #$08        ; Handle down
 JY_L:   LDA #$10        ; Handle left
         BIT JOYDIR
         BEQ JY_F
-        JSR MCRSRL      ; Move CURSOR left
+        JSR MCRS_L      ; Move CURSOR left
         LDA #LEFT
         STA DIRBLK
         LDX #CH_PLL
@@ -411,7 +409,7 @@ LOOK_U: LDY DIRBLK      ; Get the directional block, to avoid
                         ;   looking in the direction from which
         CPY #UP         ;   we came     
         BEQ LOOK_R      ; Direction is blocked; look right
-        JSR MCRSRU
+        JSR MCRS_U
         JSR CH4TUR      ; Check for a turtle above
         BNE LOOK_R
         LDA #DOWN
@@ -423,7 +421,7 @@ LOOK_R: LDY DIRBLK
         CPY #RIGHT
         BEQ LOOK_D
         JSR RSCRSR
-        JSR MCRSRR
+        JSR MCRS_R
         JSR CH4TUR
         BNE LOOK_D
         LDA #LEFT
@@ -435,7 +433,7 @@ LOOK_D: LDY DIRBLK
         CPY #DOWN
         BEQ LOOK_L
         JSR RSCRSR
-        JSR MCRSRD
+        JSR MCRS_D
         JSR CH4TUR
         BNE LOOK_L
         LDA #UP
@@ -456,7 +454,7 @@ LOOK_L: LDY DIRBLK
         CPY #LEFT
         BEQ CHN_R
         JSR RSCRSR
-        JSR MCRSRL
+        JSR MCRS_L
         JSR CH4TUR
         BNE CHN_R
         LDA #RIGHT
@@ -510,7 +508,7 @@ PAT_AI: TXA
         JSR SDATA
         JSR LOS         ; Check line of sight
         LDY #$00        
-IA_U:   JSR MCRSRU
+IA_U:   JSR MCRS_U
         LDA #>SCREEN    ; If the CURSOR is past the
         CMP CRSR_H      ;   top of the play area, then
         BNE IA_UC       ;   go to the next option
@@ -534,7 +532,7 @@ IA_L:   JSR RSCRSR
         LDA (CURSOR),Y  ; Get the character here
         CMP #CH_PAL     ; Left patrol
         BNE AI_R
-        JSR MCRSRL
+        JSR MCRS_L
         JSR OPEN2P
         BEQ MOVPAT
         LDA #CH_PAR     ; Turn around
@@ -543,7 +541,7 @@ IA_L:   JSR RSCRSR
 AI_R:   JSR RSCRSR
         LDA (CURSOR),Y
         CMP #CH_PAR     ; Right patrol
-        JSR MCRSRR
+        JSR MCRS_R
         JSR OPEN2P
         BEQ MOVPAT
         LDA #CH_PAL     ; Turn around
@@ -579,19 +577,19 @@ P_AI_R: PLA
 ;;;; MOVEMENT SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Move CURSOR Up
-MCRSRU: LDA #$16
+MCRS_U: LDA #$16
         JMP CRSRSB
 
 ; Move CURSOR Right
-MCRSRR: LDA #$01
+MCRS_R: LDA #$01
         JMP CRSRAD
 
 ; Move CURSOR Down
-MCRSRD: LDA #$16
+MCRS_D: LDA #$16
         JMP CRSRAD
 
 ; Move CURSOR Left
-MCRSRL: LDA #$01
+MCRS_L: LDA #$01
         JMP CRSRSB
         
 ; Add to CURSOR Direction
@@ -795,14 +793,14 @@ HLPOS:  STA SCREEN+$0E,Y
 ; Reveal the area around the player
 EXPLOR: JSR PLR2C       ; Set the CURSOR position
         JSR REV_UD
-EX_R:   JSR MCRSRR      ; First, explore to the right
+EX_R:   JSR MCRS_R      ; First, explore to the right
         JSR REV_UD      ; Reveal up and down here
         LDY #$00
         LDA (CURSOR),Y
         CMP #CH_SPC
         BEQ EX_R        ; Explore until something is hit
         JSR PLR2C
-EX_L:   JSR MCRSRL
+EX_L:   JSR MCRS_L
         JSR REV_UD      ; Reveal up and down from here
         LDY #$00
         LDA (CURSOR),Y
@@ -814,12 +812,12 @@ EX_L:   JSR MCRSRL
 ; Reveal Up/Down
 ; Reveal the CURSOR, and up and down from the CURSOR
 REV_UD: JSR CRSRRV      ; Show the current CURSOR
-        JSR MCRSRU
+        JSR MCRS_U
         JSR CRSRRV      ; Then one space up
-        JSR MCRSRD
-        JSR MCRSRD
+        JSR MCRS_D
+        JSR MCRS_D
         JSR CRSRRV      ; Then one space down
-        JSR MCRSRU      ; And restore
+        JSR MCRS_U      ; And restore
         RTS
                 
 ; Reveal the Board
@@ -875,17 +873,17 @@ DIG:    LDA HEALTH
         LDA DIRBLK      ; Which direction is blocked?
 D_U:    CMP #$01
         BNE D_R
-        JSR MCRSRU
+        JSR MCRS_U
         JMP DO_DIG
 D_R:    CMP #$02
         BNE D_D
-        JSR MCRSRD
+        JSR MCRS_D
         JMP DO_DIG
 D_D     CMP #$04
         BNE D_L
-        JSR MCRSRD
+        JSR MCRS_D
         JMP DO_DIG
-D_L     JSR MCRSRL
+D_L     JSR MCRS_L
 DO_DIG: LDY #$00
         LDA (CURSOR),Y
         CMP #CH_WAL     ; Can only dig walls
@@ -1060,11 +1058,11 @@ CHRGED: LDA CRSR_H
 LOSNX:  LDA LOSDIR      ; A is the character
         CMP #CH_PAL     ; Determine facing direction
         BNE LO_R
-        JSR MCRSRL
+        JSR MCRS_L
         JMP LOS_CH
 LO_R:   CMP #CH_PAR
         BNE LOS_R
-        JSR MCRSRR
+        JSR MCRS_R
 LOS_CH: LDY #$00
         LDA (CURSOR),Y  ; A is now the next cell
         CMP #CH_WAL     ; Is it a wall?LO
@@ -1105,9 +1103,9 @@ FIBEAM: LDA #$10        ; Discharge the beam
 NXBEAM: LDA LOSDIR      ; LOSDIR is the character, for
         CMP #CH_PAL     ;   determining the direction
         BNE FIRE_R
-        JSR MCRSRL
+        JSR MCRS_L
         JMP DRBEAM
-FIRE_R: JSR MCRSRR
+FIRE_R: JSR MCRS_R
 DRBEAM: LDY #$00
         LDA (CURSOR),Y
         CMP #CH_WAL
@@ -1155,28 +1153,28 @@ PLPLR:  LDA PLAYER
 ; Generates and displays an 10x9 maze with the Sidewinder 
 ; algorithm. The maze is 8x8, but takes up a 16x16 on the screen
 MAZE:   LDA #$6E        ; Fill the screen with walls, which
-        STA SPOS_L      ;   will be removed to make the
+        STA CURSOR      ;   will be removed to make the
         LDA #>SCREEN    ;   maze.
-        STA SPOS_H
+        STA CRSR_H
         LDY #$00
 L1:     LDA #CH_WAL
-        STA (SPOS_L),Y
-        INC SPOS_H
-        STA (SPOS_L),Y
-        DEC SPOS_H
+        STA (CURSOR),Y
+        INC CRSR_H
+        STA (CURSOR),Y
+        DEC CRSR_H
         LDA #$00        ; Set the maze to be hidden
         STA COLOR,Y
         STA COLOR+$0100,Y
         INY
         BNE L1
         LDA #$59        ; Offset for the maze
-        STA SPOS_L
+        STA CURSOR
         LDA #>SCREEN
-        STA SPOS_H
+        STA CRSR_H
         LDX #$00
-        INC SPOS_L      ; Move to the next space to
+        INC CURSOR      ; Move to the next space to
         BNE LEVEL       ;   accommodate the left-hand
-        INC SPOS_H      ;   maze border
+        INC CRSR_H      ;   maze border
 LEVEL:  TXA
         PHA
         JSR DRLEV       ; Draw the level
@@ -1196,10 +1194,10 @@ DRLEV:  CPX #$00
         BEQ F_COR
         LDA #$2C        ; Drop to the next level by adding
         CLC             ; 44 (2 lines) to the screen position
-        ADC SPOS_L
-        STA SPOS_L
+        ADC CURSOR
+        STA CURSOR
         BCC F_COR
-        INC SPOS_H
+        INC CRSR_H
 F_COR:  LDA #$0A        ; Initialize the current level
         TAY             ; Default level length
 NX_COR: STA REMAIN      ; Start a new corridor
@@ -1221,9 +1219,9 @@ DRAW:   JSR DRCORR      ; Draw the corridor
 ; Preparations
 ;     X is the level number
 ;     Y is the length of the corridor
-DRCORR: LDA SPOS_L      ; Save the screen position
+DRCORR: LDA CURSOR      ; Save the screen position
         PHA
-        LDA SPOS_H
+        LDA CRSR_H
         PHA
         TYA             ; Save the Y register for the caller
         PHA
@@ -1232,16 +1230,16 @@ DRCORR: LDA SPOS_L      ; Save the screen position
         SBC REMAIN      ;   number of remaining cells, and
         ASL             ;   multiplying by 2. Then advance
         CLC             ;   the screen position pointer to
-        ADC SPOS_L      ;   the starting location.
-        STA SPOS_L
+        ADC CURSOR      ;   the starting location.
+        STA CURSOR
         BCC KNOCK
-        INC SPOS_H
+        INC CRSR_H
 KNOCK:  DEY             ; Keep one wall intact
         TYA             ; Double the length. This is how many
         ASL             ; walls are going to be knocked out.
         TAY
         LDA #CH_SPC     ; Knock out walls with a space
-KNLOOP: STA (SPOS_L),Y  ; Knock out Y walls
+KNLOOP: STA (CURSOR),Y  ; Knock out Y walls
         DEY
         BPL KNLOOP
 ; Select a random cell from the corridor and knock out a wall
@@ -1259,21 +1257,21 @@ KNLOOP: STA (SPOS_L),Y  ; Knock out Y walls
         ASL
         TAY
         LDA #CH_LAD     ; Put a ladder at the chosen position
-        STA (SPOS_L),Y
-        LDA SPOS_L
+        STA (CURSOR),Y
+        LDA CURSOR
         SEC
         SBC #$16        ; Go up one line
-        STA SPOS_L
+        STA CURSOR
         BCS CKNOCK
-        DEC SPOS_H
+        DEC CRSR_H
 CKNOCK: LDA #CH_LAD     ; Knock out ceiling with a ladder
-        STA (SPOS_L),Y  ; Knock out the ceiling
+        STA (CURSOR),Y  ; Knock out the ceiling
 RESET:  PLA             ; Start restoring things for return
         TAY
         PLA
-        STA SPOS_H
+        STA CRSR_H
         PLA
-        STA SPOS_L
+        STA CURSOR
         RTS   
 
 ; Random Number
