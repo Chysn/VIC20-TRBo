@@ -39,6 +39,8 @@ CHROM0 = $8000          ; Character ROM
 CHROM1 = $8100          ; Character ROM
 CASECT = $0291          ; Disable Commodore case
 PRTFIX = $DDCD          ; Decimal display routine
+CHROUT = $FFD2          ; Output one character
+TIMER  = $A2            ; Jiffy counter
 
 ; Constants
 SCRCOM = $08            ; Maze color
@@ -47,13 +49,21 @@ SPEED  = $0E            ; Game speed, in jiffies of delay
 CHRAM0 = $1C00          ; Custom Characters, Page 0
 CHRAM1 = $1D00          ; Custom Characters, Page 1
 
+; Point Values
+PT_RES = $64            ; Rescuing a turtle 100 points
+PT_TER = $FA            ; Finding Terminal 250 points
+PT_BON = $32            ; Bonus Health 50 points
+PT_HLT = $19            ; Found Health 25 points
+
 ; Sound Effects Library
 FX_STA = $00            ; Start the game
 FX_FIR = $01            ; Beam sound
 FX_RES = $02            ; Rescue sound
 FX_TER = $03            ; Computer terminal activated
-FX_UNF = $04            ; Unfollow sound
+FX_DIG = $04            ; Dig sound
 FX_DMG = $05            ; The player was damaged
+FX_BON = $06            ; Bonus points!
+FX_HLT = $07            ; Found health
 
 ; Characters
 CH_SPC = $20            ; Space
@@ -71,6 +81,7 @@ CH_LAD = $2B            ; Ladder (plus)
 CH_TER = $2C            ; Location Terminal (comma)
 CH_WAL = $2D            ; Wall (minus)
 CH_HLT = $2E            ; Health (period)
+CH_LEV = $3E            ; Level Number (greater)
                   
 ; Music Player                  
 REG_L  = $033C          ; \ Music shift register
@@ -101,7 +112,6 @@ JOYDIR = $0349          ; Joystick direction capture
 DIRBLK = $034A          ; Directional block
 TURTLS = $034B          ; Turtle count for the level
 PATRLS = $034C          ; Patrol count for the level
-UNFOLL = $034D          ; Unfollow if fire is pressed
 HUNTER = $0352          ; Hunters will attack turtles
 FIRED  = $0353          ; A beam was fired
 HEALTH = $0354          ; Player health
@@ -146,8 +156,6 @@ WELCOM: JSR CLSR        ; Clear screen
         JSR POPULA      ; ...
         JSR REVEAL      ; Reveal the board
         JSR SPSHIP
-        LDA #$00
-        JSR USCORE      ; Show the last score
 WAIT:   JSR READJS
         AND #$20        ; Wait for the fire button
         BEQ WAIT
@@ -182,17 +190,58 @@ FRWAIT: JSR READJS      ; Read joystick
         BEQ GAMOVR
         JMP MAIN
 
+; Level Up
 LVLUP:  LDA #$0F        ; Fade out the music
-        STA FADE
-        JSR INITLV
-        INC GLEVEL      ; Go to the next level
+        STA FADE        ; ..
+        STA TIMER       ; Set the jiffy counter
+        LDA #$8F
+DELAY:  CMP TIMER
+        BNE DELAY
+        LDA #$0E
+        STA DATA_L
+        LDA #>SCREEN
+        STA DATA_H
+        LDA #$08
+        STA VOLUME
+        LDA HEALTH      ; Store health for bonus countdown
+        PHA
+BONUS:  LDA FX_BON
+        JSR SOUND       ; Play the bonus sound
+        LDA #PT_BON
+        JSR USCORE
+        LDA #CH_SPC
+        LDY #$00
+        STA (DATA_L),Y
+        INC DATA_L
+        STY TIMER
+        LDA #$10
+BDEL:   CMP TIMER
+        BNE BDEL
+        DEC HEALTH
+        BNE BONUS
+        PLA             ; Restore health after bonus
+        STA HEALTH
+        INC GLEVEL      ; Advance the level
+        JSR INITLV      ; Initialize the next level
         JMP MAIN
-        
-GAMOVR: JSR HOME
+
+; Game Over, Juggalos and Juggalettes!        
+GAMOVR: JSR REVEAL      ; Reveal the board
+        LDA #CH_PLR     ; Show the player
+        LDY #$00        ; ..
+        STA (PLR_L),Y   ; ..
+        LDA #$06
+BLUE:   STA COLOR,Y
+        STA COLOR+$0100,Y
+        INY
+        BNE BLUE
+        JSR HOME        ; ..
         LDA #<ENDTXT    ; Show the intro screen
         LDY #>ENDTXT    ; ..
         JSR PRTSTR      ; ..
-        LDA #$0F
+        LDA #$00
+        JSR USCORE      ; Show the final score
+        LDA #$10
         STA TEMPO       ; Slow the music down
         STA FADE        ; Fade out music
         JMP WAIT
@@ -212,7 +261,6 @@ ENDISR: DEC FRCD
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Move the player
 PL_MV:  LDY #$00
-        STY UNFOLL
         STY DIRBLK
         LDA (PLR_L),Y
         TAX             ; Set current player character
@@ -269,13 +317,9 @@ JY_L:   LDA #$10        ; Handle left
 JY_F:   LDA #$20        ; Handle fire
         BIT JOYDIR
         BEQ DOMOVE
-        LDY #$01
-        STA UNFOLL      ; If Unfollow is set, the turtles
-                        ;   will not follow you
-        LDA #FX_UNF
-        JSR SOUND       ; Launch the alert sound
-        LDA DIRBLK
-        BEQ MV_R  
+        LDA DIRBLK      ; Can't dig a hole unless choosing
+        BEQ MV_R        ;   a direction
+        JSR DIG         ; Dig a hole at the cost of damage
 DOMOVE: JSR ISBLOC      ; Is the candidate space open?
         BEQ MV_R        ;   If not, don't move
         TXA
@@ -289,15 +333,13 @@ DOMOVE: JSR ISBLOC      ; Is the candidate space open?
         LDY #$00
         LDA (CAND_L),Y  ; Get the current character at candidate
         STA UNDER       ;   and save it for when we move away
-        CMP #CH_TER     ; Has the player encountered the
-        BNE PL_PL       ;   computer terminal?
-        LDA #$20
-        STA UNDER       ; Goes away after use
-        LDA #FX_TER
-        JSR SOUND       ; Launch the terminal sound
-        JSR REVEAL      ; Reveal the board
-        LDA #$FA
-        JSR USCORE      ; Worth 250 points
+ENCTER: CMP #CH_TER     ; Has the player encountered the
+        BNE ENCHLT      ;   computer terminal?
+        JSR FNDTER
+        JMP PL_PL
+ENCHLT: CMP #CH_HLT     ; Has the player encountered a health
+        BNE PL_PL       ;   boost?
+        JSR FNDHLT
 PL_PL:  PLA             ; Place the player
         TAX             ; ..
         LDA CAND_L      ; ..
@@ -316,8 +358,6 @@ PL_PL:  PLA             ; Place the player
         STA CAND_L      ;   candidate so that we can look around
         PLA             ;   for a turtle chain
         STA CAND_H
-        LDA UNFOLL      ; If the fire button is down, then a
-        BNE MV_R        ;   turtle chain can't be started
         LDY #$00        ; If there's a turtle in the previous
         LDA (CAND_L),Y  ;   position, then a turtle chain can't
         CMP #CH_TUR     ;   be started, or else that turle will
@@ -338,14 +378,14 @@ NPC_MV: LDA #$5B        ; First, look for a turtle near the
         STA CAND_H      ;   (1) Removing the turtle
         LDY #$00        ;   (2) Adding to the score    
         LDA (CAND_L),Y  ;   (3) Playing a sound
-        CMP #CH_TUL     ;   (4) Decrement the turtle count
+        JSR IS_TUR      ;   (4) Decrement the turtle count
         BNE PATROL      ;   (5) Chaining other turtles
         LDA #$20        ; Remove the turtle
         STA (CAND_L),Y
         DEC TURTLS      ; Decrement the turtle count
         LDA #FX_RES
         JSR SOUND       ; Launch the rescue sound
-        LDA #$64
+        LDA #PT_RES
         JSR USCORE      ; Add to the score
         LDA #$08
         STA DIRBLK
@@ -665,7 +705,7 @@ CHRCOL: STA DATA_L
         SEC             ;   memory from the specified page to
         SBC #>SCREEN    ;   get the screen page offset
         CLC
-        ADC #$96        ; Add that offset to color memory so
+        ADC #>COLOR     ; Add that offset to color memory so
         STA DATA_H      ;   data now points to color location
         PLP
         BCS SETCOL      ; If carry flag is clear, set index to 0
@@ -720,6 +760,15 @@ USCORE: CLC
         BCC SCDRAW
         INC SCOR_H
 SCDRAW: JSR HOME
+        LDA #CH_LEV
+        JSR CHROUT
+        LDX GLEVEL
+        INX
+        LDA #$00
+        JSR PRTFIX
+        LDA #CH_SPC
+        JSR CHROUT
+        JSR CHROUT
         LDX SCOR_L
         LDA SCOR_H
         JSR PRTFIX
@@ -731,9 +780,9 @@ NXHRT:  LDA #CH_HLT
         CPY HEALTH
         BCC HLPOS
         LDA #CH_SPC
-HLPOS:  STA SCREEN+12,Y
-        LDA #$02
-        STA COLOR+12,Y
+HLPOS:  STA SCREEN+$0E,Y
+        LDA #$06
+        STA COLOR+$0E,Y
         INY
         CPY #$0A
         BNE NXHRT
@@ -808,8 +857,76 @@ READJS: LDA VIA1PA      ; Read VIA1 port
         BEQ READ_R      ; If any directions are selected,
                         ;   set the JOYDIR register
         STA JOYDIR
-READ_R: RTS               
+READ_R: RTS   
 
+; Dig a Hole
+; At the host of one point of damage
+DIG:    LDA HEALTH
+        CMP #$02        ; Can you even afford to dig? We won't
+        BCC DIG_R       ;   let it kill you
+        LDA CAND_H
+        PHA
+        LDA CAND_L
+        PHA
+        JSR PLR2C       ; Set the candidate
+        LDA DIRBLK      ; Which direction is blocked?
+D_U:    CMP #$01
+        BNE D_R
+        JSR MVCD_U
+        JMP DO_DIG
+D_R:    CMP #$02
+        BNE D_D
+        JSR MVCD_D
+        JMP DO_DIG
+D_D     CMP #$04
+        BNE D_L
+        JSR MVCD_D
+        JMP DO_DIG
+D_L     JSR MVCD_L
+DO_DIG: LDY #$00
+        LDA (CAND_L),Y
+        CMP #CH_WAL     ; Can only dig walls
+        BNE DIG_R
+        LDA #CH_SPC
+        STA (CAND_L),Y
+        LDA #FX_DIG     ; Launch the digging sound
+        JSR SOUND       ; ..
+        JSR DAMAGE      ; Take one point of damage
+DIG_R:  PLA
+        STA CAND_L
+        PLA
+        STA CAND_H
+        RTS     
+
+; Found the Terminal        
+FNDTER: LDA #CH_SPC
+        STA UNDER       ; Goes away after use
+        LDA #FX_TER
+        JSR SOUND       ; Launch the terminal sound
+        JSR REVEAL      ; Reveal the board
+        LDA #$00
+        STA HUNTER      ; Quiesce the patrols
+        LDA #$08
+        STA TEMPO
+        LDA #PT_TER
+        JSR USCORE
+        RTS 
+
+; Found a Health Boost
+FNDHLT: LDA #CH_SPC
+        STA UNDER       ; Goes away after use
+        LDA HEALTH
+        CMP #$08        ; Already maxed out
+        BCS HLT_R       ; ..
+        INC HEALTH      ; Increase and display
+        JSR SHOWHL      ; ..
+HLT_R:  LDA #FX_HLT     ; Launch the bonus sound
+        JSR SOUND       ; ..
+        LDA #PT_HLT
+        JSR USCORE
+        RTS
+        
+        
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MUSIC AND EFFECT PLAYER SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -918,7 +1035,7 @@ SOUND:  SEI             ; Don't play anything while setting up
         CLI             ; Go! 
         RTS
         
-; Check Line-of-Sight for Patrol  
+; Line-of-Sight 
 ; The patrol is looking in the direction it is facing,
 ; for the player. If it sees the player, it will fire on 
 ; the player if its beam is charged.
@@ -947,7 +1064,9 @@ LO_R:   CMP #CH_PAR
         JSR MVCD_R
 LOS_CH: LDY #$00
         LDA (CAND_L),Y  ; A is now the next cell
-        CMP #CH_WAL     ; Is it a wall?
+        CMP #CH_WAL     ; Is it a wall?LO
+        BEQ LOS_R       ;   No line-of-sight found
+        CMP #$3D        ; Right corner of ship?
         BEQ LOS_R       ;   No line-of-sight found
         JSR IS_PAT      ; Is it a patrol?
         BEQ LOS_R       ;   They don't fire on each other
@@ -955,7 +1074,7 @@ LOS_CH: LDY #$00
         BEQ FIBEAM      ;   Yeah, shoot that!
         LDY HUNTER      ; Are the patrols in hunt mode?
         BEQ LOSNX
-        JSR IS_TUR
+        JSR IS_TUR      ; If so, fire at turtles
         BEQ FIBEAM
         BNE LOSNX       ; Keep going until something is hit
 LOS_R:  PLA
@@ -990,7 +1109,11 @@ DRBEAM: LDY #$00
         LDA (CAND_L),Y
         CMP #CH_WAL
         BEQ LOS_R       ; Stop at a wall
-        PHA
+        JSR IS_PLR
+        BNE OTHER
+        JSR DAMAGE
+        JMP LOS_R
+OTHER:  PHA
         LDX #CH_BEA     ; Draw the beam
         LDA CAND_L      ; ..
         LDY CAND_H      ; ..
@@ -999,10 +1122,6 @@ DRBEAM: LDY #$00
         PLA             ; Okay, what did we hit?
         JSR IS_COR      ; Is it a corridor?
         BEQ NXBEAM
-        JSR IS_PLR      ; Is it the player
-        BNE HITTUR
-        JSR DAMAGE
-        JMP LOS_R
 HITTUR: JSR IS_TUR      ; Is it a turtle?
         BNE LOS_R
         DEC TURTLS      ; A turtle was killed; reduce the count
@@ -1012,11 +1131,12 @@ HITTUR: JSR IS_TUR      ; Is it a turtle?
 ; The player or a turtle have taken a hit
 ; Falls through to DRAWPL
 DAMAGE: LDA HEALTH
-        BEQ PLPLR
+        BEQ DAMA_R
         DEC HEALTH
         JSR SHOWHL      ; Show health
         LDA FX_DMG
-        JSR SOUND       ; Falls through to PLPLR
+        JSR SOUND
+DAMA_R: RTS
 
 ; Place Player        
 PLPLR:  LDA PLR_L
@@ -1083,7 +1203,6 @@ NX_COR: STA REMAIN      ; Start a new corridor
         CPX #$00        ; Level 0 is a special case; it always
         BEQ DRAW        ;   has a single full-length corridor
         JSR RAND        ; Y = Length of the next corridor
-        AND #$0F        ; Limit corridors to eight cells
 DRAW:   JSR DRCORR      ; Draw the corridor
         STY SCRPAD      ; Update remaining cells by
         LDA REMAIN      ;   subtracting the size of the
@@ -1189,7 +1308,7 @@ CL0:    LDA CHROM0,X
 CL1:    LDA CCHSET,X
         STA CHRAM1+8,X
         INX
-        CPX #$E8
+        CPX #$F0
         BNE CL1
         LDA #$FF        ; Switch over character map
         STA VICCR5
@@ -1208,23 +1327,30 @@ INITLV: JSR CLSR
         LDA #CH_SPC
         STA UNDER       ; Start with a space under player
         LDY #$01        ; Populate the location terminal
-        LDX #CH_TER     ; ...
-        JSR POPULA      ; ...
-        LDY #$0A        ; Populate some turtles
-        STY TURTLS      ; .. Set the turtle count
-        LDX #CH_TUR     ; ...
-        JSR POPULA      ; ...
-        LDA #$00
-        STA PATRLS      ; Initialize patrol data table
+        LDX #CH_TER     ; ..
+        JSR POPULA      ; ..
+        LDA GLEVEL      ; Populate some turtles
+        ASL             ; ..
+        ADC #$02        ; ..
+        AND #$0F        ; ..
+        TAY             ; ..
+        STY TURTLS      ; ..
+        LDX #CH_TUR     ; ..
+        JSR POPULA      ; ..
+        LDA #$00        ; Initialize patrol data table
+        STA PATRLS      ; ..
         LDA GLEVEL      ; Populate some patrols
         AND #$07        ; Limit patrols to eight (including INY)
-        TAY             ; ...
-        INY             ; ...
-        LDX #CH_PAL     ; ...
-        JSR POPULA      ; ...
-        LDA #$08
-        STA TEMPO       ; Set the music tempo
-        STA MUCD
+        TAY             ; ..
+        INY             ; ..
+        LDX #CH_PAL     ; ..
+        JSR POPULA      ; ..
+        LDX #CH_HLT     ; Populate a couple health boosts
+        LDY #$02        ; ..
+        JSR POPULA      ; ..
+        LDA #$08        ; Set the music tempo
+        STA TEMPO       ; ..
+        STA MUCD        ; ..
         LDA GLEVEL
         AND #$0F        ; Limit to 16 musical scores
         JSR MUSIC       ; Select the score
@@ -1251,8 +1377,6 @@ SETHW:  LDA #SCRCOM     ; Set background color
         STA VOICEM      ; ..
         STA VOICEH      ; ..
         STA NOISE       ; ..
-        STA SCOR_H      ; Clear score for intro screen
-        STA SCOR_L      ; ..
         LDA #$7F        ; Set DDR to read East
         STA VIA2DD
         LDA CASECT      ; Disable Commodore-Shift
@@ -1403,11 +1527,11 @@ PLR2C:  LDA PLR_L
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA AND TABLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INTRO:  .asc $0d,"TRBO  TURTLE RESCUEBOT"
+INTRO:  .asc "TRBO  TURTLE RESCUEBOT"
         .asc "   / JASON JUSTIAN",$0d
-        .asc "  ! FIRE TO START %   ",$00
+        .asc " !  FIRE TO START   %",$00
         
-ENDTXT: .asc $0d,"    ' GAME OVER (     ",$00
+ENDTXT: .asc $0d,$0d,"   ' MISSION OVER (   ",$00
 
 ; Custom character set        
 CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
@@ -1423,7 +1547,7 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
         .byte $00,$00,$aa,$be,$aa,$28,$82,$82 ; LocationTerminal
         .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
-        .byte $00,$6c,$de,$be,$be,$5c,$28,$10 ; Health
+        .byte $10,$54,$38,$c6,$38,$54,$10,$00 ; Health
         .byte $3c,$42,$99,$a1,$a1,$99,$42,$3c ; Copyright
         .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
         .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
@@ -1439,10 +1563,11 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $00,$00,$00,$00,$00,$00,$00,$0a ; Ship2
         .byte $2b,$2f,$0b,$02,$00,$00,$02,$08 ; Ship3
         .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship4
+        .byte $c0,$c0,$c0,$80,$80,$80,$f8,$00 ; Level#
 
 ; Color map for the above characters, indexed from SPACE
 COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
-        .byte $03,$03,$0F,$02,$09,$04,$02
+        .byte $03,$03,$0F,$02,$09,$04,$06
 
 ; Spaceship part offsets        
 SHOFF:  .byte $59,$58,$42,$43      
@@ -1474,5 +1599,8 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
         .byte $55,$63                       ; Fire Sound
         .byte $03,$24                       ; Turtle rescue
         .byte $23,$62                       ; Terminal Activated
-        .byte $4a,$11                       ; Unfollow
+        .byte $4a,$41                       ; Dig
         .byte $fb,$72                       ; Damaged
+        .byte $44,$2F                       ; Bonus
+        .byte $2f,$64                       ; Found Health
+        
