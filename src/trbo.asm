@@ -115,9 +115,10 @@ DIRBLK = $034A          ; Block direction (UP,RIGHT, RIGHT)
 TURTLS = $034B          ; Turtle count for the level
 PATRLS = $034C          ; Patrol count for the level
 HUNTER = $0352          ; Hunters will attack turtles
-FIRED  = $0353          ; A beam was fired
-HEALTH = $0354          ; Player health
-LOSDIR = $0355          ; Line-of-sight direction
+FIRED  = $0353          ; Any patrol fired
+DIDFIR = $0354          ; Current patrol fired
+HEALTH = $0355          ; Player health
+LOSDIR = $0356          ; Line-of-sight direction
 PLAYER = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; /
 CURSOR = $03            ; \ CURSOR direction
@@ -507,8 +508,11 @@ PAT_AI: TXA
         STA CRSR_H
         JSR SDATA
         JSR LOS         ; Check line of sight
-        LDY #$00        
-IA_U:   JSR MCRS_U
+        LDA DIDFIR
+        BEQ IA_U
+        JMP P_AI_R
+IA_U:   LDY #$00        
+        JSR MCRS_U
         LDA #>SCREEN    ; If the CURSOR is past the
         CMP CRSR_H      ;   top of the play area, then
         BNE IA_UC       ;   go to the next option
@@ -1044,10 +1048,14 @@ SOUND:  SEI             ; Don't play anything while setting up
 ; Preparations:
 ;     X contains the patrol table index
 ;     CURSOR contains the current patrol character
-LOS:    LDA PATTAB+2,X  ; Check on the charge of the
-        BEQ CHRGED      ;   patrol's beam. After a shot,
-        DEC PATTAB+2,X  ;   the patrol must wait a while
-        RTS             ;   before shooting again.
+LOS:    LDA #$00
+        STA DIDFIR
+        LDA PATTAB+2,X  ; Check on the charge of the
+        AND #$0F        ;   patrol's beam. After a shot,
+        CMP #$00
+        BEQ CHRGED      ;   the patrol must wait a while
+        DEC PATTAB+2,X  ;   before shooting again
+        RTS
 CHRGED: LDA CRSR_H
         PHA
         LDA CURSOR
@@ -1083,9 +1091,13 @@ LOS_R:  PLA
         PLA
         STA CRSR_H
         RTS 
-FIBEAM: LDA #$10        ; Discharge the beam
+FIBEAM: INC HUNTER      ; Activate Hunter mode
+        INC FIRED       ; Fire happened
+        INC DIDFIR      ; This patrol fired
+        LDA #$0F        ; Discharge the beam
         SEC             ; ..
         SBC GLEVEL      ; ..
+        ORA PATTAB+2,X  ; Preserve the high nybble
         STA PATTAB+2,X  ; ..
         INC HUNTER      ; Activate Hunter mode
         INC FIRED       ; Fire happened
