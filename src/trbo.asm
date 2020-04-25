@@ -48,12 +48,12 @@ TXTCOL = $01            ; Text color
 SPEED  = $0E            ; Game speed, in jiffies of delay
 CHRAM0 = $1C00          ; Custom Characters, Page 0
 CHRAM1 = $1D00          ; Custom Characters, Page 1
-UP     = $01            ; Up
-RIGHT  = $02            ; Right
-DOWN   = $04            ; Down
-LEFT   = $08            ; Left
-
-; Point Values
+; These are constants used for direction blocking
+UP     = $01            ; Block - Up
+RIGHT  = $02            ; Block - Right
+DOWN   = $04            ; Block - Down
+LEFT   = $08            ; Block - Left
+; These contants are point values
 PT_RES = $64            ; Rescuing a turtle 100 pts
 PT_TER = $FA            ; Finding Terminal  250 pts
 PT_BON = $32            ; Bonus Health       50 pts
@@ -115,25 +115,26 @@ DIRBLK = $034A          ; Block direction (UP,RIGHT, RIGHT)
 TURTLS = $034B          ; Turtle count for the level
 PATRLS = $034C          ; Patrol count for the level
 HUNTER = $0352          ; Hunters will attack turtles
-FIRED  = $0353          ; Any patrol fired
-DIDFIR = $0354          ; Current patrol fired
+FIRED  = $0353          ; Any patrol fired this round
+DIDFIR = $0354          ; Current patrol fired this round
 HEALTH = $0355          ; Player health
 LOSDIR = $0356          ; Line-of-sight direction
+TABIDX = $0357          ; Current patrol's real table index
 PLAYER = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; /
 CURSOR = $03            ; \ CURSOR direction
 CRSR_H = $04            ; /
 
 ; Start of Patrol Table
-; Each entry in the Patrol Table contains four bytes. Indexed
-; from the start of each entry, these are
-;   0 - Patrol position (low byte)
-;   1 - Patrol position (high byte)
-;   2 - Multiple data points
-;       bits 0-2 - Fire refresh countdown
-;       bit 7    - Vertical travel (up=1, down=0)
-;   3 - Character under the patrol (ladder or space)
-PATTAB = $03C0          ; Start of Patrol table
+; Each entry in the Patrol Table contains eight bytes. Six
+; of these are used. From the start of each entry, these are:
+PATROL = $03C0          ; Patrol location low byte
+PATL_H = $03C1          ; Patrol location high byte
+PAT_BR = $03C2          ; Beam refresh (0 if ready to fire)
+PAT_DI = $03C3          ; Direction (UP, RIGHT, DOWN, LEFT)
+PAT_TR = $03C4          ; Vertical travel (UP, DOWN)
+PAT_UN = $03C5          ; Character under (CH_SPC, CH_LAD)
+PAT_BF = $03C6          ; Bump flag
 
 ; General use registers - Any function may use these, but no
 ; function may assume that they're safe from other functions
@@ -175,6 +176,9 @@ STGAME: LDA #$00
 
 ; Start a new level
 STLEV:  JSR INITLV
+
+; Diagnostic - Comment out for actual play!
+DIAG:   JSR REVEAL
 
 ; Main loop
 MAIN:   LDA #$00        ; Reset joystick
@@ -377,7 +381,7 @@ MV_R:   JSR EXPLOR      ; Explore surroundings
 ; Move non-player characters (turtles and patrols)        
 NPC_MV: LDA SCREEN+$5A  ; First, look for a turtle near the
         JSR IS_TUR      ;   spaceship. This turtle will be
-        BNE PATROL      ;   rescued. Rescue involves:
+        BNE MVPATS      ;   rescued. Rescue involves:
         LDA #CH_SPC     ;   (1) Removing the turtle
         STA SCREEN+$5A  ;   ..
         DEC TURTLS      ;   (2) Decrementing the turtle count
@@ -392,8 +396,14 @@ NPC_MV: LDA SCREEN+$5A  ; First, look for a turtle near the
         LDA #LEFT
         STA DIRBLK
         JSR TURCHN
-PATROL: LDX PATRLS      ; Move each patrol
-FORPAT: DEX             ; Patrols are zero-indexed
+MVPATS: LDX PATRLS      ; Move each patrol
+FORPAT: LDA #$01        ; The first patrol is an express to the
+        STA PAT_BF      ;   top. It never requires a bump to go
+        STA PAT_TR      ;   up, and it never leaves the surface
+                        ;   once it gets there. This increases
+                        ;   the chance of the surface being
+                        ;   defended.
+        DEX             ; Patrols are zero-indexed
         JSR PAT_AI      ; Call patrol AI routine
         CPX #$00
         BNE FORPAT
@@ -494,104 +504,181 @@ PL_SL : LDA CURSOR      ; Place the space or ladder
 CHN_R:  RTS
         
 ; Patrol AI
-; 
+; The patrol movement works like this:
+;  I)    If the player is in the patrol's line of sight,
+;        and the beam is recharged, then fire. If the patrol
+;        fired the beam, then END
+;  (ref AI_I)
+;
+;  II)   If the patrol is on a ladder (Ladder flag set)
+;        (A) If the patrol can leave the ladder
+;            Set a Horiz direction, clear the Bump flag, and 
+;            the Ladder flag. END
+;        (B) If the patrol cannot leave the ladder, check
+;            the Vertical flag. Check that direction.
+;            (1) If that direction is open, MOVE there
+;            (2) Otherwise, END
+;  (ref AI_II)
+;
+;  III)  If the patrol is not on a ladder (Ladder flag clear);
+;        (A) If the Vert direction is open
+;            (1) If the Bump flag is set, set the Ladder flag.
+;            MOVE in the Vert direction
+;        (B) If the Horiz direction is open, MOVE in the
+;            Horiz directon
+;        (C) If the Horiz direction is not open, reverse (EOR)
+;            the Horiz flag and set the Bump flag. END
+;  ref (AI_III)
+;  
 ; Preparations
 ;     X is the patrol index
 PAT_AI: TXA
-        PHA
-        ASL
-        ASL             ; Index four bytes per patrol
-        TAX             ; Actual table index
-        LDA PATTAB,X
-        STA CURSOR
-        LDA PATTAB+1,X
-        STA CRSR_H
-        JSR SDATA
+        ASL             ; Index eight bytes per patrol so that
+        ASL             ;   X is the real table index
+        ASL             ;   ..
+        TAX             ;   ..
+        STX TABIDX      ; Save the current real table index
+        LDA PATROL,X    ; Set the CURSOR to the patrol's current
+        STA CURSOR      ;   position
+        LDA PATL_H,X    ;   ..
+        STA CRSR_H      ;   ..
+AI_I:   LDA #$00        ; Reset whether this patrol has fired
+        STA DIDFIR      ;   to check after line-of-sight (LOS)                        
         JSR LOS         ; Check line of sight
-        LDA DIDFIR
-        BEQ CHK_DF
-        JMP P_AI_R
-CHK_DF: LDA PATTAB+2,X  ; Check the Down flag
-        AND #$80        ; ..
-        BNE AI_D        ; The Down flag is set
-AI_U:   LDY #$00        
-        JSR MCRS_U
-        LDA #>SCREEN    ; If the CURSOR is past the
-        CMP CRSR_H      ;   top of the play area, then
-        BNE AI_UC       ;   go to the next option
-        LDA #$58
-        CMP CURSOR
-        BCC AI_UC
-        LDA PATTAB+2,X  ; If the patrol is at the top of
-        ORA #$80        ;   the screen, set the Down flag
-        STA PATTAB+2,X  ;   ..
-        JMP AI_L        ; But don't go down just yet
-AI_UC:  JSR OPEN2P
-        BNE AI_L
-        LDA #CH_PAC
-        STA (DATA_L),Y
-        LDA (CURSOR),Y  ; Moving up to a space?
-        CMP #CH_SPC
-        BNE MOVPAT      ; If it's a ladder, just move
-NEWDIR: LDA CURSOR      ; Once off the ladder, choose
-        CMP PLAYER      ;   a new direction. This is also
-        LDA #CH_PAR     ;   used below, when going down
-        ADC #$00        ;   the ladder.
-        STA (DATA_L),Y
-        JMP MOVPAT
-AI_D:   JSR RSCRSR
-        JSR MCRS_D      ; Check downward
-        JSR OPEN2P
-        BNE AI_L        ; Down not available, try a direction
-        LDA #CH_PAC
-        LDY #$00
-        STA (DATA_L),Y
-        JMP MOVPAT
-AI_L:   JSR RSCRSR
-        LDA (CURSOR),Y  ; Get the character here
-        CMP #CH_PAL     ; Left patrol
-        BNE AI_R
-        JSR MCRS_L
-        JSR OPEN2P
-        BEQ MOVPAT
-        LDA #CH_PAR     ; Turn around
-        STA (DATA_L),Y
-        JMP P_AI_R
-AI_R:   JSR RSCRSR
-        LDA (CURSOR),Y
-        CMP #CH_PAR     ; Right patrol
-        JSR MCRS_R
-        JSR OPEN2P
-        BEQ MOVPAT
-        LDA #CH_PAL     ; Turn around
-        STA (DATA_L),Y
-        JMP P_AI_R
-MOVPAT: LDY #$00
-        LDA (DATA_L),Y  ; Get the current character
-        PHA             ;   and stash it for redraw
-        LDA PATTAB+3,X  ; Restore the character under
-        STA (DATA_L),Y  ;   and set the correct color
+        JSR SDATA       ; Set DATA from CURSOR
+        LDA DIDFIR      ; If the patrol fired during the check,
+        BNE AI_R        ;   do nothing else
+AI_II:  LDX TABIDX
+        LDA PAT_DI,X    ; Get current direction
+        AND #$05        ; UP + DOWN
+        BEQ AI_III      ; If not on ladder, go to next step
+        JSR ONLAD       ; If so, do the On Ladder routine
+        JMP PAT_DR      ; Draw the patrol
+AI_III: JSR OFFLAD      ; Do the Off Ladder routine
+PAT_DR: LDY #CH_PAC     ; Determine the character based
+        LDX TABIDX      ;   on the new direction
+        LDA PAT_DI,X    ;
+        AND #$05        ; Is the direction up or down?
+        BNE GOTCHR      ; If so, climbing is already in Y
+        LDY #CH_PAL
+        LDA PAT_DI,X
+        CMP #RIGHT
+        BNE GOTCHR      ; If not, left is already in Y
+        LDY #CH_PAR     ; Switch to right
+GOTCHR: TYA             ; Stash the new character
+        PHA             ; ..
+        LDA PAT_UN,X    ; Get the character under the patrol
+        TAX             ; Place the old character
         LDA DATA_L      ; ..
         LDY DATA_H      ; ..
-        SEC
-        JSR CHRCOL      ; ..
-        LDA CURSOR      ; Update the patrol data table
-        STA PATTAB,X    ; ..
-        LDA CRSR_H      ; ..
-        STA PATTAB+1,X  ; ..
+        SEC             ; .. 
+        JSR PLACE       ; ..
         LDY #$00
-        LDA (CURSOR),Y  ; Record the new under character
-        STA PATTAB+3,X  ;   in the data table
-        PLA             ; Get the character for redraw
-        TAX             ; Prepare for placement
+        LDA (CURSOR),Y  ; Current character at the destination
+        JSR IS_COR      ; Update the patrol's UNDER entry only
+        BNE UP_PAT      ;   if it is a wall or ladder
+        LDX TABIDX      ;   ..
+        STA PAT_UN,X    ;   ..
+UP_PAT: LDA CURSOR      ; Update the patrol table entry
+        STA PATROL,X    ; ..
+        LDA CRSR_H      ; ..
+        STA PATL_H,X    ; ..
+        PLA             ; Put the new character to draw in X
+        TAX             ; Place the new patrol
         LDA CURSOR      ; ..
         LDY CRSR_H      ; ..
         SEC             ; ..
         JSR PLACE       ; ..
-P_AI_R: PLA
-        TAX
-        RTS        
+AI_R:   LDA TABIDX      ; Restore X from Real Table Index back
+        LSR             ;   to the patrol index, because the
+        LSR             ;   caller uses X as an iterator
+        LSR             ;   ..
+        TAX             ;   ..
+        RTS  
 
+; Patrol On Ladder        
+ONLAD:  JSR MCRS_L
+        JSR OPEN2P      ; Can the patrol move left?
+        BNE CL_R        ; No, then check right
+        LDA #LEFT       ; Change direction to left
+        STA PAT_DI,X    ; ..
+        LDA #$00        ; Clear Bump flag
+        STA PAT_BF,X    ; ..
+        RTS
+CL_R:   JSR RSCRSR
+        JSR MCRS_R
+        JSR OPEN2P      ; Is right open?
+        BNE CL_U
+        LDA #RIGHT      ; Change direction to right
+        STA PAT_DI,X    ; ..
+        LDA #$00        ; Clear Bump flag
+        STA PAT_BF,X    ; ..
+        RTS
+CL_U:   JSR RSCRSR
+        LDA PAT_DI,X    ; Is the patrol on its way up?
+        CMP #UP     
+        BNE CL_D
+        JSR MCRS_U
+        JSR OPEN2P      ; Is up open?
+        BEQ ON_R
+CL_D:   JSR RSCRSR
+        JSR MCRS_D      ; No need to check stuff here, because        
+                        ;   it's the only option left
+        JSR OPEN2P
+        BEQ ON_R
+        JSR RSCRSR
+ON_R:   RTS
+
+; Patrol Off Ladder
+OFFLAD: LDA PAT_BF,X    ; If the Bump flag is unset, then don't
+        BEQ CO_R        ;   check any vertical directions yet
+        LDA PAT_UN,X    ; Is the Travel direction Down?
+        CMP #DOWN
+        BNE CO_U        ; No, then check Up
+        JSR MCRS_D
+        JSR OPEN2P      ; Can the patrol move down?
+        BNE CO_R        ; If not open, then move left or right
+        LDA #DOWN       ; Move onto the ladder going down
+        STA PAT_DI,X    ; ..
+        LDA #$00        ; Clear Bump flag
+        STA PAT_BF,X    ; ..
+        RTS
+CO_U:   JSR RSCRSR
+        JSR MCRS_U
+        LDY #$00
+        LDA (CURSOR),Y
+        CMP #CH_LAD     ; Checking specifically for a ladder, so
+        BNE CO_R        ;   patrol doesn't climb off the screen
+        LDA #UP         ; Move onto the ladder going up
+        STA PAT_DI,X    ; ..
+        LDA #$00        ; Clear the Bump flag
+        STA PAT_BF,X    ; ..
+        RTS
+CO_R:   JSR RSCRSR
+        LDA PAT_DI,X    ; Is the patrol moving right?
+        CMP #RIGHT
+        BNE CO_L
+        JSR MCRS_R
+        JSR OPEN2P      ; Can the patrol move right?
+        BNE BUMP        ; Can't move this round
+        RTS             ; Return to draw routine
+CO_L:   JSR RSCRSR      ; No need to check direction flag here
+        JSR MCRS_L
+        JSR OPEN2P      ; Can the patrol move left?
+        BNE BUMP
+        RTS        
+BUMP:   JSR RSCRSR      ; Cannot move; restore the CURSOR
+        LDA #$01        ; Set the Bump flag
+        STA PAT_BF,X    ; ..
+        LDA #RIGHT      ; If the direction is not already
+        CMP PAT_DI,X    ;   to the right, then set it
+        BEQ D2LEFT
+        STA PAT_DI,X
+        RTS
+D2LEFT: LDA #LEFT
+        STA PAT_DI,X
+        RTS             ; Return to draw routine
+        
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MOVEMENT SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1063,14 +1150,10 @@ SOUND:  SEI             ; Don't play anything while setting up
 ; Preparations:
 ;     X contains the patrol table index
 ;     CURSOR contains the current patrol character
-LOS:    LDA #$00
-        STA DIDFIR
-        LDA PATTAB+2,X  ; Check on the charge of the
-        AND #$0F        ;   patrol's beam. After a shot,
-        CMP #$00
-        BEQ CHRGED      ;   the patrol must wait a while
-        DEC PATTAB+2,X  ;   before shooting again
-        RTS
+LOS:    LDA PAT_BR,X  ; Check on the charge of the
+        BEQ CHRGED      ;   patrol's beam. After a shot,
+        DEC PAT_BR,X  ;   the patrol must wait a while
+        RTS             ;   before shooting again.
 CHRGED: LDA CRSR_H
         PHA
         LDA CURSOR
@@ -1106,14 +1189,11 @@ LOS_R:  PLA
         PLA
         STA CRSR_H
         RTS 
-FIBEAM: INC HUNTER      ; Activate Hunter mode
-        INC FIRED       ; Fire happened
-        INC DIDFIR      ; This patrol fired
-        LDA #$0F        ; Discharge the beam
+FIBEAM: LDA #$0F        ; Discharge the beam
+        STA DIDFIR      ; Mark beam as fired for this patrol
         SEC             ; ..
         SBC GLEVEL      ; ..
-        ORA PATTAB+2,X  ; Preserve the high nybble
-        STA PATTAB+2,X  ; ..
+        STA PAT_BR,X  ; ..
         INC HUNTER      ; Activate Hunter mode
         INC FIRED       ; Fire happened
         LDA #$07
@@ -1512,18 +1592,25 @@ ADDPAT: PHA
         TXA
         PHA
         LDA PATRLS
-        ASL
-        ASL             ; Allocate four bytes per Patrol
-        TAX             ; Actual table index
-        LDA DATA_L
-        STA PATTAB,X
-        LDA DATA_H
-        STA PATTAB+1,X
-        LDA #$0F        
-        STA PATTAB+2,X  ; Set recharge time to 15 cycles
+        ASL             ; Allocate eight bytes per patrol
+        ASL             ; ..
+        ASL             ; ..
+        TAX             ; Real Table Index
+        LDA DATA_L      ; Set location low
+        STA PATROL,X    ; ..
+        LDA DATA_H      ; Set location high
+        STA PATL_H,X    ; ..
+        LDA #$0F        ; Set recharge time to 15 frames
+        STA PAT_BR,X    ; ..
+        LDA #LEFT       ; Set direction left
+        STA PAT_DI,X    ; ..
+        LDA #UP         ; Set vertical travel upward
+        STA PAT_TR,X    ; ..
+        LDA #$01        ; Set Bump flag
+        STA PAT_BF,X    ; ..
+        LDA #CH_SPC     ; Set space under the patrol
+        STA PAT_UN,X    ; ..
         INC PATRLS
-        LDA #CH_SPC
-        STA PATTAB+3,X  ; Set space under the patrol
         PLA
         TAX
         PLA
@@ -1551,7 +1638,7 @@ PLR2C:  LDA PLAYER
         LDA PLR_H
         STA CRSR_H
         RTS
-                
+        
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA AND TABLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
