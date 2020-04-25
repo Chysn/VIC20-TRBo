@@ -54,10 +54,10 @@ DOWN   = $04            ; Down
 LEFT   = $08            ; Left
 
 ; Point Values
-PT_RES = $64            ; Rescuing a turtle 100 points
-PT_TER = $FA            ; Finding Terminal 250 points
-PT_BON = $32            ; Bonus Health 50 points
-PT_HLT = $19            ; Found Health 25 points
+PT_RES = $64            ; Rescuing a turtle 100 pts
+PT_TER = $FA            ; Finding Terminal  250 pts
+PT_BON = $32            ; Bonus Health       50 pts
+PT_HLT = $19            ; Found Health       25 pts
 
 ; Sound Effects Library
 FX_STA = $00            ; Start the game
@@ -73,13 +73,13 @@ FX_HLT = $07            ; Found health
 CH_SPC = $20            ; Space
 CH_TUR = $21            ; Turtle Right (exclamation)
 CH_TUL = $22            ; Turtle Left (double quote)
-CH_TUU = $23            ; Turtle Up (octothorpe)
+CH_TUC = $23            ; Turtle Climbing (octothorpe)
 CH_PLR = $24            ; TRBo Right (dollar)
 CH_PLL = $25            ; TRBo Left (percent)
-CH_PLU = $26            ; TRBo Up/Down (ampersand)
+CH_PLC = $26            ; TRBo Climbing (ampersand)
 CH_PAR = $27            ; Patrol Right (single quote)
 CH_PAL = $28            ; Patrol Left (open paren)
-CH_PAU = $29            ; Patrol Up/Down (close paren)
+CH_PAC = $29            ; Patrol Climbing (close paren)
 CH_BEA = $2A            ; Beam (asterisk)
 CH_LAD = $2B            ; Ladder (plus)
 CH_TER = $2C            ; Location Terminal (comma)
@@ -285,7 +285,7 @@ JY_U:   LDA #$04        ; Handle up
         RTS
 JY_UC:  LDA #UP         ; Upward movement may proceed
         STA DIRBLK
-        LDX #CH_PLU
+        LDX #CH_PLC
         JMP JY_F
 JY_R:   LDA #$80        ; Handle right
         BIT JOYDIR
@@ -301,7 +301,7 @@ JY_D:   LDA #$08        ; Handle down
         JSR MCRS_D      ; Move CURSOR down
         LDA #DOWN
         STA DIRBLK
-        LDX #CH_PLU
+        LDX #CH_PLC
         JMP JY_F
 JY_L:   LDA #$10        ; Handle left
         BIT JOYDIR
@@ -367,7 +367,7 @@ PL_PL:  PLA             ; Place the player
         BEQ MV_R        ;   be destroyed. Check for all three
         CMP #CH_TUL     ;   turtle characters.
         BEQ MV_R  
-        CMP #CH_TUU
+        CMP #CH_TUC
         BEQ MV_R
         JSR TURCHN      ; Recursively find turtles for a chain
 MV_R:   JSR EXPLOR      ; Explore surroundings
@@ -415,7 +415,7 @@ LOOK_U: LDY DIRBLK      ; Get the directional block, to avoid
         BNE LOOK_R
         LDA #DOWN
         STA DIRBLK
-        LDX #CH_TUU     ; Pulling turtle from above, so use
+        LDX #CH_TUC     ; Pulling turtle from above, so use
                         ;   the turtle on a ladder
         JMP MOVETU
 LOOK_R: LDY DIRBLK
@@ -439,7 +439,7 @@ LOOK_D: LDY DIRBLK
         BNE LOOK_L
         LDA #UP
         STA DIRBLK
-        LDX #CH_TUU     ; Pulling a turtle from below, so
+        LDX #CH_TUC     ; Pulling a turtle from below, so
                         ;   use the turtle on a ladder
         LDY #$00
         LDA (DATA_L),Y
@@ -476,14 +476,14 @@ MOVETU: LDY #$00
         LDA (DATA_L),Y  ; Where the turtle is going?
         CMP #CH_LAD     ; To a ladder?
         BNE PL_TUR      ; If not, use the selected graphic
-        LDX #CH_TUU     ; Otherwise, switch to the ladder turtle
+        LDX #CH_TUC     ; Otherwise, switch to the ladder turtle
 PL_TUR: LDA DATA_L      ; Place the turtle in the DATA position
         LDY DATA_H      ; ...
         SEC             ; ...
         JSR PLACE       ; ...
         LDX #CH_SPC     ; Default to replacing with space
         PLA
-        CMP #CH_TUU     ; But if the turtle is coming off a
+        CMP #CH_TUC     ; But if the turtle is coming off a
         BNE PL_SL       ;   ladder, replace with a ladder
         LDX #CH_LAD
 PL_SL : LDA CURSOR      ; Place the space or ladder
@@ -509,19 +509,26 @@ PAT_AI: TXA
         JSR SDATA
         JSR LOS         ; Check line of sight
         LDA DIDFIR
-        BEQ IA_U
+        BEQ CHK_DF
         JMP P_AI_R
-IA_U:   LDY #$00        
+CHK_DF: LDA PATTAB+2,X  ; Check the Down flag
+        AND #$80        ; ..
+        BNE AI_D        ; The Down flag is set
+AI_U:   LDY #$00        
         JSR MCRS_U
         LDA #>SCREEN    ; If the CURSOR is past the
         CMP CRSR_H      ;   top of the play area, then
-        BNE IA_UC       ;   go to the next option
+        BNE AI_UC       ;   go to the next option
         LDA #$58
         CMP CURSOR
-        BCS IA_L
-IA_UC:  JSR OPEN2P
-        BNE IA_L
-        LDA #CH_PAU
+        BCC AI_UC
+        LDA PATTAB+2,X  ; If the patrol is at the top of
+        ORA #$80        ;   the screen, set the Down flag
+        STA PATTAB+2,X  ;   ..
+        JMP AI_L        ; But don't go down just yet
+AI_UC:  JSR OPEN2P
+        BNE AI_L
+        LDA #CH_PAC
         STA (DATA_L),Y
         LDA (CURSOR),Y  ; Moving up to a space?
         CMP #CH_SPC
@@ -532,7 +539,15 @@ NEWDIR: LDA CURSOR      ; Once off the ladder, choose
         ADC #$00        ;   the ladder.
         STA (DATA_L),Y
         JMP MOVPAT
-IA_L:   JSR RSCRSR
+AI_D:   JSR RSCRSR
+        JSR MCRS_D      ; Check downward
+        JSR OPEN2P
+        BNE AI_L        ; Down not available, try a direction
+        LDA #CH_PAC
+        LDY #$00
+        STA (DATA_L),Y
+        JMP MOVPAT
+AI_L:   JSR RSCRSR
         LDA (CURSOR),Y  ; Get the character here
         CMP #CH_PAL     ; Left patrol
         BNE AI_R
@@ -638,7 +653,7 @@ IS_PLR: CMP #CH_PLR     ; Is it a right-facing player?
         BEQ IS_P_R
         CMP #CH_PLL     ; Is it a left-facing player?
         BEQ IS_P_R
-        CMP #CH_PLU     ; Is it a climbing player?
+        CMP #CH_PLC     ; Is it a climbing player?
 IS_P_R: RTS
 
 ; Is Turtle
@@ -646,7 +661,7 @@ IS_TUR: CMP #CH_TUR     ; Is it a right-facing turtle?
         BEQ IS_T_R
         CMP #CH_TUL     ; Is it a left-facing turtle?
         BEQ IS_T_R
-        CMP #CH_TUU     ; Is it a climbing turtle?
+        CMP #CH_TUC     ; Is it a climbing turtle?
 IS_T_R: RTS
 
 ; Is Patrol
@@ -654,7 +669,7 @@ IS_PAT: CMP #CH_PAR     ; Is it a right-facing patrol?
         BEQ ISPA_R
         CMP #CH_PAL     ; Is it a left-facing patrol?
         BEQ ISPA_R
-        CMP #CH_PAU     ; Is it a climbing patrol?
+        CMP #CH_PAC     ; Is it a climbing patrol?
 ISPA_R: RTS
 
 ; Is Corridor
