@@ -15,13 +15,14 @@ LAUNCH: .byte $0b,$04,$01,$00,$9e,$34,$31,$31
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; System Resources
 ISR    = $0314          ; ISR vector
+NMI    = $FFFE          ; NMI vector (0318)
 SCREEN = $1E00          ; Screen character memory (unexpanded)
 COLOR  = $9600          ; Screen color memory (unexpanded)
 SYSISR = $EABF          ; System ISR   
 VICCR5 = $9005          ; Character map register
 VOICEH = $900C          ; High sound register
 VOICEM = $900B          ; Mid sound register
-VOICEL = $900A          ; Low sound register
+VOICEL = $900A          ; Low sound register (unused)
 NOISE  = $900D          ; Noise register
 VOLUME = $900E          ; Sound volume register
 BACKGD = $900F          ; Background color
@@ -123,7 +124,7 @@ TABIDX = $0357          ; Current patrol's real table index
 PLAYER = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; /
 CURSOR = $03            ; \ CURSOR direction
-CRSR_H = $04            ; /
+CUR_H  = $04            ; /
 
 ; Start of Patrol Table
 ; Each entry in the Patrol Table contains eight bytes. Six
@@ -135,6 +136,8 @@ PAT_DI = $03C3          ; Direction (UP, RIGHT, DOWN, LEFT)
 PAT_TR = $03C4          ; Vertical travel (UP, DOWN)
 PAT_UN = $03C5          ; Character under (CH_SPC, CH_LAD)
 PAT_BF = $03C6          ; Bump flag
+PAT_LL = $03C7          ; Ladder exit location low byte
+PAT_LH = $03C8          ; Ladder exit location high byte
 
 ; General use registers - Any function may use these, but no
 ; function may assume that they're safe from other functions
@@ -177,9 +180,6 @@ STGAME: LDA #$00
 ; Start a new level
 STLEV:  JSR INITLV
 
-; Diagnostic - Comment out for actual play!
-DIAG:   JSR REVEAL
-
 ; Main loop
 MAIN:   LDA #$00        ; Reset joystick
         STA JOYDIR      ;   and
@@ -198,19 +198,26 @@ FRWAIT: JSR READJS      ; Read joystick
         JMP MAIN
 
 ; Level Up
-LVLUP:  LDA #$0E
-        STA DATA_L
-        LDA #>SCREEN
+LVLUP:  LDA #$0F        ; Fade out the music
+        STA FADE        ; ..
+        STA TIMER       ; Set the jiffy counter
+        LDA #$AF
+DELAY:  CMP TIMER
+        BNE DELAY
+        LDA #$0E
+        STA DATA_L      ; Store the #$0E from above
+        LDA #>COLOR
         STA DATA_H
         LDA #$08
         STA VOLUME
+        JSR M_STOP
         LDA HEALTH      ; Store health for bonus countdown
         PHA
 BONUS:  LDA FX_BON
         JSR SOUND       ; Play the bonus sound
         LDA #PT_BON
         JSR USCORE
-        LDA #CH_SPC
+        LDA #$01
         LDY #$00
         STA (DATA_L),Y
         INC DATA_L
@@ -222,15 +229,8 @@ BDEL:   CMP TIMER
         BNE BONUS
         PLA             ; Restore health after bonus
         STA HEALTH
-        LDA #$0F        ; Fade out the music
-        STA FADE        ; ..
-        STA TIMER       ; Set the jiffy counter
-        LDA #$8F
-DELAY:  CMP TIMER
-        BNE DELAY
         INC GLEVEL      ; Advance the level
-        JSR INITLV      ; Initialize the next level
-        JMP MAIN
+        JMP STLEV
 
 ; Game Over, Juggalos and Juggalettes!        
 GAMOVR: JSR REVEAL      ; Reveal the board
@@ -267,25 +267,28 @@ ENDISR: DEC FRCD
 ;;;; GAME PLAY SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Move the player
-PL_MV:  LDY #$00
-        STY DIRBLK
+PL_MV:  LDY #$00        ; Initialize the direction block; it
+        STY DIRBLK      ;   tells which direction was chosen,
+                        ;   and also which way we shouldn't
+                        ;   look for turtles in the turtle
+                        ;   chain
         LDA (PLAYER),Y
         TAX             ; Set current player character
-        LDA JOYDIR
-        BNE SETC        ; Do nothing if no direction set
+        LDA JOYDIR      ; Read the joystick and
+        BNE SETC        ;   do nothing if no direction is set
         RTS
 SETC:   JSR PLR2C       ; Move player position to CURSOR      
 JY_U:   LDA #$04        ; Handle up
         BIT JOYDIR
         BEQ JY_R
-        JSR MCRS_U      ; Move CURSOR up
+        JSR MCUR_U      ; Move CURSOR up
         LDA #>SCREEN    ; If the CURSOR is past the
-        CMP CRSR_H      ;   top of the play area, then
+        CMP CUR_H       ;   top of the play area, then
         BNE JY_UC       ;   leave the handler routine
         LDA #$58
         CMP CURSOR
         BCC JY_UC
-        JSR MCRS_D
+        JSR MCUR_D
         RTS
 JY_UC:  LDA #UP         ; Upward movement may proceed
         STA DIRBLK
@@ -294,7 +297,7 @@ JY_UC:  LDA #UP         ; Upward movement may proceed
 JY_R:   LDA #$80        ; Handle right
         BIT JOYDIR
         BEQ JY_D
-        JSR MCRS_R      ; Move CURSOR right
+        JSR MCUR_R      ; Move CURSOR right
         LDA #RIGHT
         STA DIRBLK
         LDX #CH_PLR
@@ -302,7 +305,7 @@ JY_R:   LDA #$80        ; Handle right
 JY_D:   LDA #$08        ; Handle down
         BIT JOYDIR
         BEQ JY_L
-        JSR MCRS_D      ; Move CURSOR down
+        JSR MCUR_D      ; Move CURSOR down
         LDA #DOWN
         STA DIRBLK
         LDX #CH_PLC
@@ -310,11 +313,11 @@ JY_D:   LDA #$08        ; Handle down
 JY_L:   LDA #$10        ; Handle left
         BIT JOYDIR
         BEQ JY_F
-        JSR MCRS_L      ; Move CURSOR left
+        JSR MCUR_L      ; Move CURSOR left
         LDA #LEFT
         STA DIRBLK
         LDX #CH_PLL
-        LDA CRSR_H      ; If the CURSOR is off the left
+        LDA CUR_H       ; If the CURSOR is off the left
         CMP #>SCREEN    ;   side of the screen, then
         BNE JY_F        ;   restore the CURSOR back
         LDA CURSOR      ;   to the curent player
@@ -350,7 +353,7 @@ ENCHLT: CMP #CH_HLT     ; Has the player encountered a health
 PL_PL:  PLA             ; Place the player
         TAX             ; ..
         LDA CURSOR      ; ..
-        LDY CRSR_H      ; ..
+        LDY CUR_H       ; ..
         SEC             ; ..
         JSR PLACE       ; ..
         LDA PLR_H       ; Store the player position temporarily
@@ -359,12 +362,12 @@ PL_PL:  PLA             ; Place the player
         PHA
         LDA CURSOR      ; Update player position
         STA PLAYER
-        LDA CRSR_H
+        LDA CUR_H 
         STA PLR_H
         PLA             ; Put the previous position into 
         STA CURSOR      ;   CURSOR so that we can look around
         PLA             ;   for a turtle chain
-        STA CRSR_H
+        STA CUR_H 
         LDY #$00        ; If there's a turtle in the previous
         LDA (CURSOR),Y  ;   position, then a turtle chain can't
         CMP #CH_TUR     ;   be started, or else that turle will
@@ -392,7 +395,7 @@ NPC_MV: LDA SCREEN+$5A  ; First, look for a turtle near the
         LDA #$5A        ; Set the CURSOR to pull in
         STA CURSOR      ;   additional turtles in the chain
         LDA #>SCREEN    ;   ..
-        STA CRSR_H      ;   ..
+        STA CUR_H       ;   ..
         LDA #LEFT
         STA DIRBLK
         JSR TURCHN
@@ -420,7 +423,7 @@ LOOK_U: LDY DIRBLK      ; Get the directional block, to avoid
                         ;   looking in the direction from which
         CPY #UP         ;   we came     
         BEQ LOOK_R      ; Direction is blocked; look right
-        JSR MCRS_U
+        JSR MCUR_U
         JSR CH4TUR      ; Check for a turtle above
         BNE LOOK_R
         LDA #DOWN
@@ -431,8 +434,8 @@ LOOK_U: LDY DIRBLK      ; Get the directional block, to avoid
 LOOK_R: LDY DIRBLK
         CPY #RIGHT
         BEQ LOOK_D
-        JSR RSCRSR
-        JSR MCRS_R
+        JSR RS_CUR
+        JSR MCUR_R
         JSR CH4TUR
         BNE LOOK_D
         LDA #LEFT
@@ -443,8 +446,8 @@ LOOK_R: LDY DIRBLK
 LOOK_D: LDY DIRBLK
         CPY #DOWN
         BEQ LOOK_L
-        JSR RSCRSR
-        JSR MCRS_D
+        JSR RS_CUR
+        JSR MCUR_D
         JSR CH4TUR
         BNE LOOK_L
         LDA #UP
@@ -464,8 +467,8 @@ LOOK_D: LDY DIRBLK
 LOOK_L: LDY DIRBLK
         CPY #LEFT
         BEQ CHN_R
-        JSR RSCRSR
-        JSR MCRS_L
+        JSR RS_CUR
+        JSR MCUR_L
         JSR CH4TUR
         BNE CHN_R
         LDA #RIGHT
@@ -497,7 +500,7 @@ PL_TUR: LDA DATA_L      ; Place the turtle in the DATA position
         BNE PL_SL       ;   ladder, replace with a ladder
         LDX #CH_LAD
 PL_SL : LDA CURSOR      ; Place the space or ladder
-        LDY CRSR_H      ; ...
+        LDY CUR_H       ; ...
         SEC             ; ...
         JSR PLACE       ; ...
         JMP TURCHN
@@ -541,7 +544,7 @@ PAT_AI: TXA
         LDA PATROL,X    ; Set the CURSOR to the patrol's current
         STA CURSOR      ;   position
         LDA PATL_H,X    ;   ..
-        STA CRSR_H      ;   ..
+        STA CUR_H       ;   ..
 AI_I:   LDA #$00        ; Reset whether this patrol has fired
         STA DIDFIR      ;   to check after line-of-sight (LOS)                        
         JSR LOS         ; Check line of sight
@@ -581,12 +584,12 @@ GOTCHR: TYA             ; Stash the new character
         STA PAT_UN,X    ;   ..
 UP_PAT: LDA CURSOR      ; Update the patrol table entry
         STA PATROL,X    ; ..
-        LDA CRSR_H      ; ..
+        LDA CUR_H       ; ..
         STA PATL_H,X    ; ..
         PLA             ; Put the new character to draw in X
         TAX             ; Place the new patrol
         LDA CURSOR      ; ..
-        LDY CRSR_H      ; ..
+        LDY CUR_H       ; ..
         SEC             ; ..
         JSR PLACE       ; ..
 AI_R:   LDA TABIDX      ; Restore X from Real Table Index back
@@ -597,123 +600,162 @@ AI_R:   LDA TABIDX      ; Restore X from Real Table Index back
         RTS  
 
 ; Patrol On Ladder        
-ONLAD:  JSR MCRS_L
-        JSR OPEN2P      ; Can the patrol move left?
+ONLAD:  JSR MCUR_L
+        JSR OPEN2P      ; Is there a left corridor?
         BNE CL_R        ; No, then check right
         LDA #LEFT       ; Change direction to left
-        STA PAT_DI,X    ; ..
-        LDA #$00        ; Clear Bump flag
-        STA PAT_BF,X    ; ..
+        JSR MVOFFL      ; Move off ladder
         RTS
-CL_R:   JSR RSCRSR
-        JSR MCRS_R
-        JSR OPEN2P      ; Is right open?
+CL_R:   JSR RS_CUR
+        JSR MCUR_R
+        JSR OPEN2P      ; Is there a right corridor?
         BNE CL_U
         LDA #RIGHT      ; Change direction to right
-        STA PAT_DI,X    ; ..
-        LDA #$00        ; Clear Bump flag
-        STA PAT_BF,X    ; ..
+        JSR MVOFFL
         RTS
-CL_U:   JSR RSCRSR
+CL_U:   JSR RS_CUR
         LDA PAT_DI,X    ; Is the patrol on its way up?
         CMP #UP     
         BNE CL_D
-        JSR MCRS_U
+        JSR MCUR_U
         JSR OPEN2P      ; Is up open?
-        BEQ ON_R
-CL_D:   JSR RSCRSR
-        JSR MCRS_D      ; No need to check stuff here, because        
+        BNE ON_CR
+        LDA CUR_H       ; If the patrol is at the top level,
+        CMP #>SCREEN    ;   change its direction of travel
+        BNE ON_R        ;   to Down
+        LDA CURSOR      ;   ..
+        CMP #$6E        ;   ..
+        BCS ON_R        ;   ..
+        LDA #DOWN       ;   ..
+        STA PAT_TR,X    ;   ..
+        BNE ON_R
+CL_D:   JSR RS_CUR
+        JSR MCUR_D      ; No need to check stuff here, because        
                         ;   it's the only option left
         JSR OPEN2P
+        BNE STUCK
         BEQ ON_R
-        JSR RSCRSR
+STUCK:  LDA #UP         ; Set the travel direction to Up to
+        STA PAT_TR,X    ;   avoid getting the hell stuck
+        STA PAT_DI,X    ;   ..
+ON_CR:  JSR RS_CUR
 ON_R:   RTS
 
 ; Patrol Off Ladder
-OFFLAD: LDA PAT_BF,X    ; If the Bump flag is unset, then don't
+OFFLAD: LDA PAT_TR,X    ; If the travel direction is Down, see
+        CMP #DOWN       ;   if the patrol came off the ladder
+        BNE CO_CHK      ;   at this location. If this is the
+        LDA DATA_L      ;   case, give the patrol a chance
+        CMP PAT_LL,X    ;   of changing its direction of
+        BNE CO_CHK      ;   travel. This helps the patrol to
+        LDA DATA_H      ;   avoid getting stuck in a room and
+        CMP PAT_LH,X    ;   away from the action.
+        BNE CO_CHK      ;   ..
+        LDA TIMER       ;   .. 
+        CMP #$30        ; The preference is to keep going down,
+        BCC CO_CHK      ;   though, if possible
+        LDA #UP         ; Set the travel direction to Up
+        STA PAT_TR,X    ; ..
+CO_CHK: LDA PAT_BF,X    ; If the Bump flag is unset, then don't
         BEQ CO_R        ;   check any vertical directions yet
-        LDA PAT_UN,X    ; Is the Travel direction Down?
+        LDA PAT_TR,X    ; Is the Travel direction Down?
         CMP #DOWN
         BNE CO_U        ; No, then check Up
-        JSR MCRS_D
+        JSR MCUR_D
         JSR OPEN2P      ; Can the patrol move down?
         BNE CO_R        ; If not open, then move left or right
         LDA #DOWN       ; Move onto the ladder going down
         STA PAT_DI,X    ; ..
-        LDA #$00        ; Clear Bump flag
-        STA PAT_BF,X    ; ..
         RTS
-CO_U:   JSR RSCRSR
-        JSR MCRS_U
+CO_U:   JSR RS_CUR
+        JSR MCUR_U
         LDY #$00
         LDA (CURSOR),Y
         CMP #CH_LAD     ; Checking specifically for a ladder, so
         BNE CO_R        ;   patrol doesn't climb off the screen
         LDA #UP         ; Move onto the ladder going up
         STA PAT_DI,X    ; ..
-        LDA #$00        ; Clear the Bump flag
-        STA PAT_BF,X    ; ..
         RTS
-CO_R:   JSR RSCRSR
+CO_R:   JSR RS_CUR
         LDA PAT_DI,X    ; Is the patrol moving right?
         CMP #RIGHT
         BNE CO_L
-        JSR MCRS_R
+        JSR MCUR_R
         JSR OPEN2P      ; Can the patrol move right?
         BNE BUMP        ; Can't move this round
         RTS             ; Return to draw routine
-CO_L:   JSR RSCRSR      ; No need to check direction flag here
-        JSR MCRS_L
+CO_L:   JSR RS_CUR      ; No need to check direction flag here
+        JSR MCUR_L
         JSR OPEN2P      ; Can the patrol move left?
         BNE BUMP
         RTS        
-BUMP:   JSR RSCRSR      ; Cannot move; restore the CURSOR
+BUMP:   JSR RS_CUR      ; Cannot move; restore the CURSOR
         LDA #$01        ; Set the Bump flag
         STA PAT_BF,X    ; ..
         LDA #RIGHT      ; If the direction is not already
         CMP PAT_DI,X    ;   to the right, then set it
         BEQ D2LEFT
         STA PAT_DI,X
-        RTS
+        RTS             ; Return to draw routine
 D2LEFT: LDA #LEFT
         STA PAT_DI,X
         RTS             ; Return to draw routine
+        
+; Move Off Ladder
+; Sets the direction to the one specifed in A. But, more
+; importantly, this sets the bottom ladder location if the
+; patrol has a downward travel. If the patrol reaches this
+; point again, it will change its travel to upward most
+; of the time.        
+MVOFFL: PHA
+        LDA PAT_DI,X
+        CMP #DOWN
+        BNE CH_DIR
+        LDA DATA_L
+        STA PAT_LL,X
+        LDA DATA_H
+        STA PAT_LH,X
+CH_DIR  PLA
+        STA PAT_DI,X
+        LDA #$00        ; Clear Bump flag
+        STA PAT_BF,X    ; ..
+        RTS        
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MOVEMENT SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Move CURSOR Up
-MCRS_U: LDA #$16
-        JMP CRSRSB
+MCUR_U: LDA #$16
+        JMP CUR_SB
 
 ; Move CURSOR Right
-MCRS_R: LDA #$01
-        JMP CRSRAD
+MCUR_R: LDA #$01
+        JMP CUR_AD
 
 ; Move CURSOR Down
-MCRS_D: LDA #$16
-        JMP CRSRAD
+MCUR_D: LDA #$16
+        JMP CUR_AD
 
 ; Move CURSOR Left
-MCRS_L: LDA #$01
-        JMP CRSRSB
+MCUR_L: LDA #$01
+        JMP CUR_SB
         
 ; Add to CURSOR Direction
-CRSRAD: CLC
+CUR_AD: CLC
         ADC CURSOR
         STA CURSOR
         BCC CADD_R
-        INC CRSR_H
+        INC CUR_H 
 CADD_R: RTS
 
 ; Subtract from CURSOR Direction
-CRSRSB: STA SCRPAD
+CUR_SB: STA SCRPAD
         LDA CURSOR
         SEC
         SBC SCRPAD
         STA CURSOR
         BCS CSUB_R        
-        DEC CRSR_H
+        DEC CUR_H 
 CSUB_R: RTS  
 
 ; Is Blocked to Player
@@ -825,8 +867,8 @@ SETCOL: LDA COLMAP,X    ; Get the color for this character
         RTS
         
 ; Reveal character at the CURSOR       
-CRSRRV: LDA CURSOR
-        LDY CRSR_H
+CUR_RV: LDA CURSOR
+        LDY CUR_H 
         SEC
         JSR CHRCOL
         RTS
@@ -841,11 +883,11 @@ CLBEAM: LDA FIRED
         STY FIRED
         STY CURSOR
         LDA #>SCREEN
-        STA CRSR_H
+        STA CUR_H 
 CLB1:   JSR CHKBM
-        INC CRSR_H
+        INC CUR_H 
         JSR CHKBM
-        DEC CRSR_H
+        DEC CUR_H 
         INY
         BNE CLB1
 CLB_R:  RTS
@@ -899,14 +941,14 @@ HLPOS:  STA SCREEN+$0E,Y
 ; Reveal the area around the player
 EXPLOR: JSR PLR2C       ; Set the CURSOR position
         JSR REV_UD
-EX_R:   JSR MCRS_R      ; First, explore to the right
+EX_R:   JSR MCUR_R      ; First, explore to the right
         JSR REV_UD      ; Reveal up and down here
         LDY #$00
         LDA (CURSOR),Y
         CMP #CH_SPC
         BEQ EX_R        ; Explore until something is hit
         JSR PLR2C
-EX_L:   JSR MCRS_L
+EX_L:   JSR MCUR_L
         JSR REV_UD      ; Reveal up and down from here
         LDY #$00
         LDA (CURSOR),Y
@@ -917,13 +959,13 @@ EX_L:   JSR MCRS_L
                 
 ; Reveal Up/Down
 ; Reveal the CURSOR, and up and down from the CURSOR
-REV_UD: JSR CRSRRV      ; Show the current CURSOR
-        JSR MCRS_U
-        JSR CRSRRV      ; Then one space up
-        JSR MCRS_D
-        JSR MCRS_D
-        JSR CRSRRV      ; Then one space down
-        JSR MCRS_U      ; And restore
+REV_UD: JSR CUR_RV      ; Show the current CURSOR
+        JSR MCUR_U
+        JSR CUR_RV      ; Then one space up
+        JSR MCUR_D
+        JSR MCUR_D
+        JSR CUR_RV      ; Then one space down
+        JSR MCUR_U      ; And restore
         RTS
                 
 ; Reveal the Board
@@ -971,7 +1013,7 @@ READ_R: RTS
 DIG:    LDA HEALTH
         CMP #$02        ; Can you even afford to dig? We won't
         BCC DIG_R       ;   let it kill you
-        LDA CRSR_H
+        LDA CUR_H 
         PHA
         LDA CURSOR
         PHA
@@ -979,17 +1021,17 @@ DIG:    LDA HEALTH
         LDA DIRBLK      ; Which direction is blocked?
 D_U:    CMP #$01
         BNE D_R
-        JSR MCRS_U
+        JSR MCUR_U
         JMP DO_DIG
 D_R:    CMP #$02
         BNE D_D
-        JSR MCRS_R
+        JSR MCUR_R
         JMP DO_DIG
 D_D     CMP #$04
         BNE D_L
-        JSR MCRS_D
+        JSR MCUR_D
         JMP DO_DIG
-D_L     JSR MCRS_L
+D_L     JSR MCUR_L
 DO_DIG: LDY #$00
         LDA (CURSOR),Y
         CMP #CH_WAL     ; Can only dig walls
@@ -1002,7 +1044,7 @@ DO_DIG: LDY #$00
 DIG_R:  PLA
         STA CURSOR
         PLA
-        STA CRSR_H
+        STA CUR_H 
         RTS     
 
 ; Found the Terminal        
@@ -1047,7 +1089,6 @@ M_PLAY: LDA #$01
 ; Stop the music player
 M_STOP: LDA #$00
         STA VOICEM
-        STA VOICEL
         STA PLAY
         RTS
 
@@ -1075,7 +1116,7 @@ NXNOTE: LDA #$01
         LDA TEMPO
         STA MUCD
         LDX #$00        ; X is the carry bit for PAT_H
-        ASL PATTRN       ; Shift the low byte, which may set C
+        ASL PATTRN      ; Shift the low byte, which may set C
         ROL PAT_H       ; Rotate the high byte, including C
         BCC NROLL       ; Was the high bit of the high byte set?
         LDX #$01        ; If so, add it back to the beginning
@@ -1093,9 +1134,6 @@ VOLREG: LDA PAT_H       ; Set the music volume and flash
 VOL:    STA VOLUME      ;   the windows of the spaceship
         LDA HUNTER      ; If the patrols are in hunter mode,
         BEQ NOTE_R      ;   play a low counterpoint
-        LDA PAT_H
-        ASL
-        STA VOICEL
 NOTE_R: RTS
 
 ; Play Next Sound Effect
@@ -1150,11 +1188,11 @@ SOUND:  SEI             ; Don't play anything while setting up
 ; Preparations:
 ;     X contains the patrol table index
 ;     CURSOR contains the current patrol character
-LOS:    LDA PAT_BR,X  ; Check on the charge of the
+LOS:    LDA PAT_BR,X    ; Check on the charge of the
         BEQ CHRGED      ;   patrol's beam. After a shot,
-        DEC PAT_BR,X  ;   the patrol must wait a while
+        DEC PAT_BR,X    ;   the patrol must wait a while
         RTS             ;   before shooting again.
-CHRGED: LDA CRSR_H
+CHRGED: LDA CUR_H 
         PHA
         LDA CURSOR
         PHA
@@ -1164,14 +1202,14 @@ CHRGED: LDA CRSR_H
 LOSNX:  LDA LOSDIR      ; A is the character
         CMP #CH_PAL     ; Determine facing direction
         BNE LO_R
-        JSR MCRS_L
+        JSR MCUR_L
         JMP LOS_CH
 LO_R:   CMP #CH_PAR
         BNE LOS_R
-        JSR MCRS_R
+        JSR MCUR_R
 LOS_CH: LDY #$00
         LDA (CURSOR),Y  ; A is now the next cell
-        CMP #CH_WAL     ; Is it a wall?LO
+        CMP #CH_WAL     ; Is it a wall?
         BEQ LOS_R       ;   No line-of-sight found
         CMP #$3D        ; Right corner of ship?
         BEQ LOS_R       ;   No line-of-sight found
@@ -1187,7 +1225,7 @@ LOS_CH: LDY #$00
 LOS_R:  PLA
         STA CURSOR
         PLA
-        STA CRSR_H
+        STA CUR_H 
         RTS 
 FIBEAM: LDA #$0F        ; Discharge the beam
         STA DIDFIR      ; Mark beam as fired for this patrol
@@ -1203,16 +1241,16 @@ FIBEAM: LDA #$0F        ; Discharge the beam
         PLA             ; Firing in the direction the patrol
         STA CURSOR      ;   is facing. Reset the CURSOR
         PLA
-        STA CRSR_H
+        STA CUR_H 
         PHA
         LDA CURSOR
         PHA
 NXBEAM: LDA LOSDIR      ; LOSDIR is the character, for
         CMP #CH_PAL     ;   determining the direction
         BNE FIRE_R
-        JSR MCRS_L
+        JSR MCUR_L
         JMP DRBEAM
-FIRE_R: JSR MCRS_R
+FIRE_R: JSR MCUR_R
 DRBEAM: LDY #$00
         LDA (CURSOR),Y
         CMP #CH_WAL
@@ -1224,7 +1262,7 @@ DRBEAM: LDY #$00
 OTHER:  PHA
         LDX #CH_BEA     ; Draw the beam
         LDA CURSOR      ; ..
-        LDY CRSR_H      ; ..
+        LDY CUR_H       ; ..
         SEC             ; ..
         JSR PLACE       ; ..
         PLA             ; Okay, what did we hit?
@@ -1262,13 +1300,13 @@ PLPLR:  LDA PLAYER
 MAZE:   LDA #$6E        ; Fill the screen with walls, which
         STA CURSOR      ;   will be removed to make the
         LDA #>SCREEN    ;   maze.
-        STA CRSR_H
+        STA CUR_H 
         LDY #$00
 L1:     LDA #CH_WAL
         STA (CURSOR),Y
-        INC CRSR_H
+        INC CUR_H 
         STA (CURSOR),Y
-        DEC CRSR_H
+        DEC CUR_H 
         LDA #$00        ; Set the maze to be hidden
         STA COLOR,Y
         STA COLOR+$0100,Y
@@ -1277,11 +1315,11 @@ L1:     LDA #CH_WAL
         LDA #$59        ; Offset for the maze
         STA CURSOR
         LDA #>SCREEN
-        STA CRSR_H
+        STA CUR_H 
         LDX #$00
         INC CURSOR      ; Move to the next space to
         BNE LEVEL       ;   accommodate the left-hand
-        INC CRSR_H      ;   maze border
+        INC CUR_H       ;   maze border
 LEVEL:  TXA
         PHA
         JSR DRLEV       ; Draw the level
@@ -1304,7 +1342,7 @@ DRLEV:  CPX #$00
         ADC CURSOR
         STA CURSOR
         BCC F_COR
-        INC CRSR_H
+        INC CUR_H 
 F_COR:  LDA #$0A        ; Initialize the current level
         TAY             ; Default level length
 NX_COR: STA REMAIN      ; Start a new corridor
@@ -1328,7 +1366,7 @@ DRAW:   JSR DRCORR      ; Draw the corridor
 ;     Y is the length of the corridor
 DRCORR: LDA CURSOR      ; Save the screen position
         PHA
-        LDA CRSR_H
+        LDA CUR_H 
         PHA
         TYA             ; Save the Y register for the caller
         PHA
@@ -1340,7 +1378,7 @@ DRCORR: LDA CURSOR      ; Save the screen position
         ADC CURSOR      ;   the starting location.
         STA CURSOR
         BCC KNOCK
-        INC CRSR_H
+        INC CUR_H 
 KNOCK:  DEY             ; Keep one wall intact
         TYA             ; Double the length. This is how many
         ASL             ; walls are going to be knocked out.
@@ -1370,13 +1408,13 @@ KNLOOP: STA (CURSOR),Y  ; Knock out Y walls
         SBC #$16        ; Go up one line
         STA CURSOR
         BCS CKNOCK
-        DEC CRSR_H
+        DEC CUR_H 
 CKNOCK: LDA #CH_LAD     ; Knock out ceiling with a ladder
         STA (CURSOR),Y  ; Knock out the ceiling
 RESET:  PLA             ; Start restoring things for return
         TAY
         PLA
-        STA CRSR_H
+        STA CUR_H 
         PLA
         STA CURSOR
         RTS   
@@ -1448,7 +1486,7 @@ INITLV: JSR CLSR
         LDA #$00        ; Initialize patrol data table
         STA PATRLS      ; ..
         LDA GLEVEL      ; Populate some patrols
-        AND #$07        ; Limit patrols to eight (including INY)
+        AND #$03        ; Limit to 4
         TAY             ; ..
         INY             ; ..
         LDX #CH_PAL     ; ..
@@ -1460,7 +1498,7 @@ INITLV: JSR CLSR
         STA TEMPO       ; ..
         STA MUCD        ; ..
         LDA GLEVEL
-        AND #$0F        ; Limit to 16 musical patterns
+        AND #$07        ; Limit to 8 musical patterns
         JSR MUSIC       ; Select the pattern
         LDA #$00
         STA HUNTER      ; Reset Hunter flag
@@ -1481,23 +1519,27 @@ SETHW:  LDA #SCRCOM     ; Set background color
         LDA #$4F        ; Set volume and spaceship port color
         STA VOLUME
         LDA #$00        ; Initialize sound registers
-        STA VOICEL      ; ..
         STA VOICEM      ; ..
         STA VOICEH      ; ..
         STA NOISE       ; ..
         LDA #$7F        ; Set DDR to read East
-        STA VIA2DD
-        LDA CASECT      ; Disable Commodore-Shift
-        ORA #$80
-        STA CASECT
+        STA VIA2DD      ; ..
+        LDA TIMER       ; Set the random number seed
+        STA RNDNUM      ; ..
+        LDA #$80        ; Disabled Commodore-Shift
+        STA CASECT      ; ..
         JSR M_STOP      ; Turn off music playing
         LDA #TXTCOL
         STA TCOLOR
         SEI             ; Install the custom ISR
-        LDA #<CSTISR
-        STA ISR
-        LDA #>CSTISR
-        STA ISR+1
+        LDA #<CSTISR    ; ..
+        STA ISR         ; ..
+        LDA #>CSTISR    ; ..
+        STA ISR+1       ; ..
+        LDA #<WELCOM    ; Install the custom NMI (restart)
+        STA NMI         ; .. 
+        LDA #>WELCOM    ; ..
+        STA NMI+1       ; ..
         LDA #SPEED      ; Initialize frame countdown before
         STA FRCD        ;   ISR is started
         CLI
@@ -1604,8 +1646,11 @@ ADDPAT: PHA
         STA PAT_BR,X    ; ..
         LDA #LEFT       ; Set direction left
         STA PAT_DI,X    ; ..
-        LDA #UP         ; Set vertical travel upward
-        STA PAT_TR,X    ; ..
+        LDA #UP         ; Set initial vertical travel upward
+        BIT PATRLS      ;   or downward, alternating
+        BNE SET_TR      ;   ..
+        LDA #DOWN       ;   ..
+SET_TR: STA PAT_TR,X    ; ..
         LDA #$01        ; Set Bump flag
         STA PAT_BF,X    ; ..
         LDA #CH_SPC     ; Set space under the patrol
@@ -1621,22 +1666,22 @@ ADDPAT: PHA
 ; Set DATA Pointer from CURSOR
 SDATA:  LDA CURSOR
         STA DATA_L
-        LDA CRSR_H
+        LDA CUR_H 
         STA DATA_H
         RTS
        
 ; Reset CURSOR from DATA pointer 
-RSCRSR: LDA DATA_L
+RS_CUR: LDA DATA_L
         STA CURSOR
         LDA DATA_H
-        STA CRSR_H
+        STA CUR_H 
         RTS
         
 ; Set CURSOR from Player position
 PLR2C:  LDA PLAYER
         STA CURSOR
         LDA PLR_H
-        STA CRSR_H
+        STA CUR_H 
         RTS
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1688,22 +1733,14 @@ COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
 SHOFF:  .byte $59,$58,$42,$43      
 
 ; Curated musical patterns for the shift register player.  
-PATRNS: .word $2332
-        .word $5412
-        .word $2bd2
-        .word $8842
+PATRNS: .word $5412
+        .word $2ab3
         .word $2fff
-        .word $5654
-        .word $1f18
-        .word $2aB3
-        .word $78c6
-        .word $5354
-        .word $8419
-        .word $2919
+        .word $4214
         .word $1331
-        .word $adad
-        .word $020e
-        .word $2962
+        .word $6446
+        .word $c633
+        .word $2919
 
 ; Sound effects for the sound effects player
 ; Each effect has three parameters
@@ -1716,6 +1753,6 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
         .byte $23,$62                       ; Terminal Activated
         .byte $4a,$41                       ; Dig
         .byte $fb,$72                       ; Damaged
-        .byte $44,$2F                       ; Bonus
+        .byte $44,$1F                       ; Bonus
         .byte $2f,$64                       ; Found Health
         
