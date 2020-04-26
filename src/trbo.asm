@@ -86,6 +86,7 @@ CH_LAD = $2B            ; Ladder (plus)
 CH_TER = $2C            ; Location Terminal (comma)
 CH_WAL = $2D            ; Wall (minus)
 CH_HLT = $2E            ; Health (period)
+CH_FWA = $2F            ; False Wall (slash)
 CH_LEV = $3E            ; Level Number (greater)
                   
 ; Music Player                  
@@ -765,6 +766,8 @@ ISBLOC: LDY #$00
         LDA (CURSOR),Y
         CMP #CH_WAL
         BEQ OP_R
+        CMP #CH_FWA     ; Also check for the secret "false wall"
+        BEQ OP_R
         JSR IS_PAT
 OP_R:   RTS
         
@@ -1297,29 +1300,31 @@ PLPLR:  LDA PLAYER
 ; Generate Maze
 ; Generates and displays an 10x9 maze with the Sidewinder 
 ; algorithm. The maze is 8x8, but takes up a 16x16 on the screen
-MAZE:   LDA #$6E        ; Fill the screen with walls, which
-        STA CURSOR      ;   will be removed to make the
-        LDA #>SCREEN    ;   maze.
-        STA CUR_H 
-        LDY #$00
+MAZE:   LDY #$00
 L1:     LDA #CH_WAL
-        STA (CURSOR),Y
-        INC CUR_H 
-        STA (CURSOR),Y
-        DEC CUR_H 
-        LDA #$00        ; Set the maze to be hidden
-        STA COLOR,Y
-        STA COLOR+$0100,Y
+        STA SCREEN+$6E,Y
+        STA SCREEN+$016E,Y
+        LDA #$00
+        STA COLOR+$6E,Y
+        STA COLOR+$016E,Y
         INY
         BNE L1
-        LDA #$59        ; Offset for the maze
+        LDA #$58        ; Draw a "false wall."
+        STA CURSOR      ;   The false wall is a strip along the
+        LDA #>SCREEN    ;   left-hand side of the playing field
+        STA CUR_H       ;   that uses the same graphic as a wall,
+        LDX #$12        ;   but is not a wall. Its purpose is to
+        LDY #$00        ;   prevent the player from digging from
+FWAL:   JSR MCUR_D      ;   one side of the board to the other,
+        LDA #CH_FWA     ;   which is something that should be
+        STA (CURSOR),Y  ;   physically impossible.
+        DEX             ;   ..
+        BNE FWAL        ;   ..
+        LDA #$5A        ; Offset for the maze
         STA CURSOR
         LDA #>SCREEN
         STA CUR_H 
         LDX #$00
-        INC CURSOR      ; Move to the next space to
-        BNE LEVEL       ;   accommodate the left-hand
-        INC CUR_H       ;   maze border
 LEVEL:  TXA
         PHA
         JSR DRLEV       ; Draw the level
@@ -1454,7 +1459,7 @@ CL0:    LDA CHROM0,X
 CL1:    LDA CCHSET,X
         STA CHRAM1+8,X
         INX
-        CPX #$F0
+        CPX #$F8
         BNE CL1
         LDA #$FF        ; Switch over character map
         STA VICCR5
@@ -1688,27 +1693,27 @@ PLR2C:  LDA PLAYER
 ;;;; GAME ASSET DATA AND TABLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 INTRO:  .asc "TRBO  TURTLE RESCUEBOT"
-        .asc "   / JASON JUSTIAN",$0d
+        .asc "   ? JASON JUSTIAN",$0d
         .asc " !  FIRE TO START   %",$00
         
 ENDTXT: .asc $0d,$0d,"   ' MISSION OVER (   ",$00
 
 ; Custom character set        
-CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
-        .byte $00,$00,$0c,$de,$de,$3f,$12,$36 ; TurtleL
-        .byte $00,$18,$5a,$42,$3c,$3c,$5a,$81 ; TurtleUp/Down
-        .byte $0f,$0d,$07,$3c,$42,$99,$3c,$18 ; RobotR
-        .byte $f0,$b0,$e0,$3c,$42,$99,$3c,$18 ; RobotL
-        .byte $3c,$3c,$18,$3c,$42,$bd,$24,$24 ; RobotUp/Down
-        .byte $00,$3c,$37,$3c,$3c,$00,$66,$66 ; PatrolR
-        .byte $00,$3c,$ec,$3c,$3c,$00,$66,$66 ; PatrolL
-        .byte $00,$18,$18,$3c,$7e,$00,$24,$24 ; PatrolUp/Down
+CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; Turtle R
+        .byte $00,$00,$0c,$de,$de,$3f,$12,$36 ; Turtle L
+        .byte $00,$18,$5a,$42,$3c,$3c,$5a,$81 ; Turtle C
+        .byte $0f,$0d,$07,$3c,$42,$99,$3c,$18 ; Robot R
+        .byte $f0,$b0,$e0,$3c,$42,$99,$3c,$18 ; Robot L
+        .byte $3c,$3c,$18,$3c,$42,$bd,$24,$24 ; Robot C
+        .byte $40,$3c,$37,$3c,$3c,$00,$66,$66 ; Patrol R
+        .byte $02,$3c,$ec,$3c,$3c,$00,$66,$66 ; Patrol L
+        .byte $04,$18,$7e,$7e,$3c,$00,$7e,$66 ; Patrol C
         .byte $00,$30,$cc,$c0,$03,$33,$0c,$00 ; Beam
         .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
-        .byte $00,$00,$aa,$be,$aa,$28,$82,$82 ; LocationTerminal
+        .byte $00,$00,$aa,$be,$aa,$28,$82,$82 ; Terminal
         .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
         .byte $10,$54,$38,$c6,$38,$54,$10,$00 ; Health
-        .byte $3c,$42,$99,$a1,$a1,$99,$42,$3c ; Copyright
+        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; False Wall
         .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
         .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
         .byte $7f,$03,$03,$7f,$40,$40,$7f,$00 ; 2
@@ -1719,15 +1724,16 @@ CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; TurtleR
         .byte $7f,$03,$03,$03,$01,$01,$01,$00 ; 7
         .byte $7f,$41,$41,$7f,$43,$43,$7f,$00 ; 8
         .byte $7f,$43,$43,$7f,$01,$01,$01,$00 ; 9
-        .byte $00,$00,$00,$00,$00,$80,$80,$a8 ; Ship1
-        .byte $00,$00,$00,$00,$00,$00,$00,$0a ; Ship2
-        .byte $2b,$2f,$0b,$02,$00,$00,$02,$08 ; Ship3
-        .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship4
+        .byte $00,$00,$00,$00,$00,$80,$80,$a8 ; Ship 1
+        .byte $00,$00,$00,$00,$00,$00,$00,$0a ; Ship 2
+        .byte $2b,$2f,$0b,$02,$00,$00,$02,$08 ; Ship 3
+        .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship 4
         .byte $c0,$c0,$c0,$80,$80,$80,$f8,$00 ; Level#
+        .byte $3c,$42,$99,$a1,$a1,$99,$42,$3c ; Copyright
 
 ; Color map for the above characters, indexed from SPACE
 COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
-        .byte $03,$03,$0F,$02,$09,$04,$06
+        .byte $03,$03,$0F,$02,$09,$04,$06,$04
 
 ; Spaceship part offsets        
 SHOFF:  .byte $59,$58,$42,$43      
