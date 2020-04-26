@@ -1,9 +1,29 @@
-; TRBo: Turtle RescueBot
-; (c)2020, Jason Justian
-; April 2020
+;                     TRBo: Turtle RescueBot
+;                     (c)2020, Jason Justian
+;                   Release 1 - April 26, 2020
 ;
-; 
+; Permission is hereby granted, free of charge, to any person 
+; obtaining a copy of this software and associated documentation
+; files (the "Software"), to deal in the Software without
+; restriction, including without limitation the rights to use,
+; copy, modify, merge, publish, distribute, sublicense, and/or
+; sell copies of the Software, and to permit persons to whom the
+; Software is furnished to do so, subject to the following 
+; conditions:
 ;
+; The above copyright notice and this permission notice shall be
+; included in all copies or substantial portions of the 
+; Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+; KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+; WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+; PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR 
+; COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+; OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; BASIC LAUNCHER
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -219,37 +239,39 @@ LVLUP:  LDA PLAYER      ; Is the player home?
         LDA #$0F        ; Fade out the music
         STA FADE        ; ..
         STA TIMER       ; Set the jiffy counter
-        LDA #$AF
-DELAY:  CMP TIMER
-        BNE DELAY
-        LDA #$0E
-        STA DATA_L      ; Store the #$0E from above
-        LDA #>COLOR
-        STA DATA_H
-        LDA #$08
-        STA VOLUME
-        JSR M_STOP
+        LDA #$AF        ;   to wait a few seconds to let the
+DELAY:  CMP TIMER       ;   music fade out
+        BNE DELAY       ;   ..
+        LDA #$0E        ; Set the DATA pointer to the start
+        STA DATA_L      ;   of the health gears. They will be
+        LDA #>COLOR     ;   changed to white as the score
+        STA DATA_H      ;   is increased for each gear remaining
+        JSR M_STOP      ; Stop the music
+        LDA #$08        ; Ensure that the volume is up, but
+        STA VOLUME      ;   not too high
         LDA HEALTH      ; Store health for bonus countdown
-        PHA
-BONUS:  LDA FX_BON
-        JSR SOUND       ; Play the bonus sound
-        LDA #PT_BON
-        JSR USCORE
-        LDA #$01
-        LDY #$00
-        STA (DATA_L),Y
-        INC DATA_L
-        STY TIMER
-        LDA #$08
-BDEL:   CMP TIMER
-        BNE BDEL
-        DEC HEALTH
-        BNE BONUS
-        PLA             ; Restore health after bonus
-        STA HEALTH
+        PHA             ; ..
+BONUS:  LDA FX_BON      ; Launch the bonus sound effect
+        JSR SOUND       ;   for each remaining health gear
+        LDA #PT_BON     ; Increase the score for each gear
+        JSR USCORE      ; ..
+        LDA #$01        ; Set the color of each remaining
+        LDY #$00        ;   gear to white
+        STA (DATA_L),Y  ;   ..
+        INC DATA_L      ;   ..
+        STY TIMER       ; Provide a little delay so the player
+        LDA #$08        ;   can count along. It's fun!
+BDEL:   CMP TIMER       ;   ..
+        BNE BDEL        ;   ..
+        DEC HEALTH      ; Do this BONUS loop until the health
+        BNE BONUS       ;   has been counted
+        PLA             ; Restore health afterward, as promised
+        STA HEALTH      ; ..
         INC GLEVEL      ; Advance the level
-        JMP STLEV
-
+        JMP STLEV       ; Start next level. LVLUP was branched
+                        ;   into, so need need to worry about
+                        ;   a return address on the stack.
+        
 ; Game Over, Juggalos and Juggalettes!        
 GAMOVR: JSR REVEAL      ; Reveal the board
         LDA #CH_PLR     ; Show the player
