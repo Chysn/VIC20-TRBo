@@ -90,7 +90,7 @@ CH_FWA = $2F            ; False Wall (slash)
 CH_LEV = $3E            ; Level Number (greater)
                   
 ; Music Player                  
-PATTRN = $033C          ; \ Music shift register pattern
+THEME  = $033C          ; \ Music shift register theme
 PAT_H  = $033D          ; /
 TEMPO  = $033E          ; Tempo (lower numbers are faster)
 MUCD   = $033F          ; Tempo countdown
@@ -128,17 +128,18 @@ CURSOR = $03            ; \ CURSOR direction
 CUR_H  = $04            ; /
 
 ; Start of Patrol Table
-; Each entry in the Patrol Table contains eight bytes. Six
-; of these are used. From the start of each entry, these are:
-PATROL = $03C0          ; Patrol location low byte
-PATL_H = $03C1          ; Patrol location high byte
-PAT_BR = $03C2          ; Beam refresh (0 if ready to fire)
-PAT_DI = $03C3          ; Direction (UP, RIGHT, DOWN, LEFT)
-PAT_TR = $03C4          ; Vertical travel (UP, DOWN)
-PAT_UN = $03C5          ; Character under (CH_SPC, CH_LAD)
-PAT_BF = $03C6          ; Bump flag
-PAT_LL = $03C7          ; Ladder exit location low byte
-PAT_LH = $03C8          ; Ladder exit location high byte
+; Each entry in the Patrol Table contains eight bytes
+; From the start of each entry, these are
+PATTAB = $03C0
+PATROL = PATTAB+0       ; Patrol location low byte
+PATL_H = PATTAB+1       ; Patrol location high byte
+PAT_BR = PATTAB+2       ; Beam refresh (0 if ready to fire)
+PAT_DI = PATTAB+3       ; Direction (UP, RIGHT, DOWN, LEFT)
+PAT_TR = PATTAB+4       ; Vertical travel (UP, DOWN)
+PAT_UN = PATTAB+5       ; Character under (CH_SPC, CH_LAD)
+PAT_BF = PATTAB+6       ; Bump flag
+PAT_LL = PATTAB+7       ; Ladder exit location low byte
+PAT_LH = PATTAB+8       ; Ladder exit location high byte
 
 ; General use registers - Any function may use these, but no
 ; function may assume that they're safe from other functions
@@ -1096,15 +1097,15 @@ M_STOP: LDA #$00
         RTS
 
 ; Select Music
-; Set a musical pattern 
+; Set a musical theme 
 ;
 ; Preparations
-;     A is the score index
-MUSIC:  ASL             ; Multiply level by 2 for score index
+;     A is the theme index
+MUSIC:  ASL             ; Multiply level by 2 for theme index
         TAX
-        LDA PATRNS,X    ; Set the musical pattern
-        STA PATTRN
-        LDA PATRNS+1,X
+        LDA THEMES,X    ; Set the musical theme
+        STA THEME 
+        LDA THEMES+1,X
         STA PAT_H
         RTS
                     
@@ -1119,13 +1120,13 @@ NXNOTE: LDA #$01
         LDA TEMPO
         STA MUCD
         LDX #$00        ; X is the carry bit for PAT_H
-        ASL PATTRN      ; Shift the low byte, which may set C
+        ASL THEME       ; Shift the low byte, which may set C
         ROL PAT_H       ; Rotate the high byte, including C
         BCC NROLL       ; Was the high bit of the high byte set?
         LDX #$01        ; If so, add it back to the beginning
 NROLL:  TXA
-        ORA PATTRN
-        STA PATTRN
+        ORA THEME 
+        STA THEME 
         ORA #$80
         STA VOICEM
         LDA FADE        ; Fade is a volume override. If fade is
@@ -1503,8 +1504,8 @@ INITLV: JSR CLSR
         STA TEMPO       ; ..
         STA MUCD        ; ..
         LDA GLEVEL
-        AND #$07        ; Limit to 8 musical patterns
-        JSR MUSIC       ; Select the pattern
+        AND #$07        ; Limit to 8 musical themes
+        JSR MUSIC       ; Select the theme
         LDA #$00
         STA HUNTER      ; Reset Hunter flag
         JSR USCORE      ; Display current score
@@ -1692,9 +1693,9 @@ PLR2C:  LDA PLAYER
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA AND TABLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INTRO:  .asc "TRBO  TURTLE RESCUEBOT"
-        .asc "   ? JASON JUSTIAN",$0d
-        .asc " !  FIRE TO START   %",$00
+INTRO:  .asc "TRBO$ TURTLE RESCUEBOT",$0d
+        .asc "   ? JASON JUSTIAN",$0d,$0d
+        .asc "    FIRE TO START",$00
         
 ENDTXT: .asc $0d,$0d,"   ' MISSION OVER (   ",$00
 
@@ -1738,8 +1739,8 @@ COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
 ; Spaceship part offsets        
 SHOFF:  .byte $59,$58,$42,$43      
 
-; Curated musical patterns for the shift register player.  
-PATRNS: .word $5412
+; Curated musical themes for the shift register player.  
+THEMES: .word $5412
         .word $2ab3
         .word $2fff
         .word $4214
