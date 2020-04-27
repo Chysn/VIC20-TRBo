@@ -39,7 +39,7 @@ BASIC:  .byte $0b,$04,$01,$00,$9e,$34,$31,$31
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; System Resources
 ISR    = $0314          ; ISR vector
-NMI    = $0318          ; NMI vector
+NMI    = $FFFE          ; NMI vector
 SCREEN = $1E00          ; Screen character memory (unexpanded)
 COLOR  = $9600          ; Screen color memory (unexpanded)
 SYSISR = $EABF          ; System ISR   
@@ -68,9 +68,9 @@ CHROUT = $FFD2          ; Output one character
 TIMER  = $A2            ; Jiffy counter
 
 ; Constants
-ST_LEV = $01            ; Starting level number
+ST_LEV = $01            ; Starting level (for diagnostics)
 ST_HLT = $08            ; Initial health level per game
-MAXPAT = $05            ; Maximum number of patrols per level
+MAXPAT = $06            ; Maximum number of patrols per level
 MAXTUR = $0C            ; Maximum number of turtles per level
 SCRCOM = $08            ; Maze color
 TXTCOL = $01            ; Text color
@@ -117,7 +117,6 @@ CH_TER = $2C            ; Location Terminal (comma)
 CH_WAL = $2D            ; Wall (minus)
 CH_HLT = $2E            ; Health (period)
 CH_FWA = $2F            ; False Wall (slash)
-CH_LEV = $3E            ; Level Number (greater)
                   
 ; Music Player                  
 THEME  = $033C          ; \ Music shift register theme
@@ -152,6 +151,8 @@ DIDFIR = $0354          ; Current patrol fired this round
 HEALTH = $0355          ; Player health
 LOSDIR = $0356          ; Line-of-sight direction
 TABIDX = $0357          ; Current patrol's real table index
+HISCOR = $0358          ; \ High score
+HISC_H = $0359          ; /
 PLAYER = $01            ; \ Player screen position (play)
 PLR_H  = $02            ; /
 CURSOR = $03            ; \ CURSOR direction
@@ -181,7 +182,9 @@ DATA_H = $0A            ; /
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Initialize the game system      
 INIT:   JSR SETHW       ; Set up hardware features
-        JSR CHRSET      ; Install the custom characters
+        LDA #$00        ; Initialize high score; this should
+        STA HISCOR      ;   survive a RESTORE
+        STA HISC_H      ;   ..
         
 ; Welcome Screen
 WELCOM: JSR CLSR        ; Clear screen
@@ -190,9 +193,15 @@ WELCOM: JSR CLSR        ; Clear screen
         LDA #<INTRO     ; Show the intro screen
         LDY #>INTRO     ; ..
         JSR PRTSTR      ; ..
-        LDY #$06        ; Populate some turtles
-        LDX #CH_TUR     ; ...
-        JSR POPULA      ; ...
+        LDY #$05        ; Populate some turtles
+        LDX #CH_TUR     ; ..
+        JSR POPULA      ; ..
+        LDY #$02        ; Populate some patrols
+        LDX #CH_PAL     ; ..
+        JSR POPULA      ; ..
+        LDY #$01        ; Add one TRBo
+        LDX #CH_PLR     ; ..
+        JSR POPULA      ; ..
         JSR REVEAL      ; Reveal the board
         JSR SPSHIP      ; Draw the spaceship
 WAIT:   JSR READJS      ; Wait for the fire button
@@ -207,8 +216,8 @@ START:  LDA #$00        ; Initialize to zero
         JSR SOUND       ; * Launch the game start sound
         LDA #ST_HLT     ; Initialize health
         STA HEALTH      ; ..
-        LDA #ST_LEV-1   ; Set the starting level with a
-        STA GLEVEL      ;   constant
+        LDA #ST_LEV-1   ; Set the starting level with a constant
+        STA GLEVEL      ; ..
 
 ; Start a new level
 STLEV:  JSR INITLV
@@ -239,9 +248,8 @@ LVLUP:  LDA PLAYER      ; Is the player home?
         LDA #$0F        ; Fade out the music
         STA FADE        ; ..
         STA TIMER       ; Set the jiffy counter
-        LDA #$AF        ;   to wait a few seconds to let the
-DELAY:  CMP TIMER       ;   music fade out
-        BNE DELAY       ;   ..
+        LDA #$A0        ;   to wait a few seconds to let the
+        JSR DELAY       ;   music fade out
         LDA #$0E        ; Set the DATA pointer to the start
         STA DATA_L      ;   of the health gears. They will be
         LDA #>COLOR     ;   changed to white as the score
@@ -259,15 +267,15 @@ BONUS:  LDA FX_BON      ; Launch the bonus sound effect
         LDY #$00        ;   gear to white
         STA (DATA_L),Y  ;   ..
         INC DATA_L      ;   ..
-        STY TIMER       ; Provide a little delay so the player
-        LDA #$08        ;   can count along. It's fun!
-BDEL:   CMP TIMER       ;   ..
-        BNE BDEL        ;   ..
+        LDA #$08        ; A delay for each health count so that
+        JSR DELAY       ;   .. the player may count along!
         DEC HEALTH      ; Do this BONUS loop until the health
         BNE BONUS       ;   has been counted
         PLA             ; Restore health afterward, as promised
         STA HEALTH      ; ..
         INC GLEVEL      ; Advance the level
+        LDA #$80        ; One more little delay so the player
+        JSR DELAY       ;   can catch his or her breath
         JMP STLEV       ; Start next level. LVLUP was branched
                         ;   into, so need need to worry about
                         ;   a return address on the stack.
@@ -288,6 +296,7 @@ BLUE:   STA COLOR,Y     ;   looks more ominous
         JSR PRTSTR      ; ..
         LDA #$00        ; Show the final score
         JSR USCORE      ; ..
+        JSR HSCORE      ; Calculate and show high score
         LDA #$10        ; Slow the music down, so that it
         STA TEMPO       ;   sounds more ominous. I love ominous!
         STA FADE        ; Fade out music
@@ -445,6 +454,10 @@ FORPAT: LDA #$01        ; The first patrol is an express to the
                         ;   the chance of the surface being
                         ;   defended, so the player usually
                         ;   has that puzzle to solve.
+        STA PAT_BF+$20  ; The fifth patrol's bump flag is always
+                        ;   on
+        LDA #$00        ; The sixth patrol just goes back and
+        STA PAT_TR+$28  ;   forth, never using a ladder                                        
         DEX             ; Patrols are zero-indexed
         JSR PAT_AI      ; Call patrol AI routine
         CPX #$00
@@ -959,7 +972,7 @@ USCORE: CLC
         BCC SCDRAW
         INC SCOR_H
 SCDRAW: JSR HOME
-        LDA #CH_LEV
+        LDA #"L"
         JSR CHROUT
         LDX GLEVEL
         INX
@@ -972,6 +985,28 @@ SCDRAW: JSR HOME
         LDA SCOR_H
         JSR PRTFIX
         RTS  
+        
+; Update High Score
+; If the current score exceeds the high score, replace
+; the high score. In either case, display the high score
+HSCORE: LDA HISC_H      ; Is the last score greater than
+        CMP SCOR_H      ;   the high score?
+        BCC NEWHS       ;   ..
+        BNE HSDRAW      ;   ..
+        LDA SCORE       ;   ..
+        CMP SCOR_H      ;   ..
+        BCC HSDRAW      ;   ..
+NEWHS:  LDA SCORE       ; A new high score has been
+        STA HISCOR      ; achived; update high score
+        LDA SCOR_H      ; ..
+        STA HISC_H      ; ..
+HSDRAW: LDA #<HSTXT     ; Show the high score text
+        LDY #>HSTXT     ; ..
+        JSR PRTSTR      ; ..
+        LDX HISCOR
+        LDA HISC_H
+        JSR PRTFIX
+        RTS
 
 ; Show Health Status        
 SHOWHL: LDY #$00
@@ -1454,7 +1489,7 @@ KNLOOP: STA (CURSOR),Y  ; Knock out Y walls
         ASL
         TAY
         LDA #CH_LAD     ; Put a ladder at the chosen position
-        STA (CURSOR),Y
+        STA (CURSOR),Y  ; ..
         LDA CURSOR
         SEC
         SBC #$16        ; Go up one line
@@ -1462,56 +1497,18 @@ KNLOOP: STA (CURSOR),Y  ; Knock out Y walls
         BCS CKNOCK
         DEC CUR_H 
 CKNOCK: LDA #CH_LAD     ; Knock out ceiling with a ladder
-        STA (CURSOR),Y  ; Knock out the ceiling
+        STA (CURSOR),Y  ; ..
 RESET:  PLA             ; Start restoring things for return
-        TAY
-        PLA
-        STA CUR_H 
-        PLA
-        STA CURSOR
+        TAY             ; ..
+        PLA             ; ..
+        STA CUR_H       ; ..
+        PLA             ; ..
+        STA CURSOR      ; ..
         RTS   
-
-; Random Number
-; Gets a random number between 1 and 16. A contains the
-; maximum value. The random number will be in Y.
-RAND:   STA SCRPAD
-        DEC SCRPAD      ; Behind the scenes, look for a number
-                        ;   between 0 and A - 1. See the INY
-                        ;   below, which compensates
-        JSR BASRND
-        LDA RNDNUM
-        AND #$0F
-        CMP SCRPAD
-        BCC E_RAND      ; Get another random number if this one
-        BEQ E_RAND      ; is greater than the maximum
-        INC SCRPAD
-        LDA SCRPAD
-        BNE RAND
-E_RAND: TAY
-        INY
-        RTS
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; SETUP SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Install Character Set
-; Set up custom character assets
-CHRSET: LDX #$00        ; Copy character ROM to RAM
-CL0:    LDA CHROM0,X
-        STA CHRAM0,X
-        LDA CHROM1,X
-        STA CHRAM1,X
-        INX
-        BNE CL0
-CL1:    LDA CCHSET,X
-        STA CHRAM1+8,X
-        INX
-        CPX #$F0
-        BNE CL1
-        LDA #$FF        ; Switch over character map
-        STA VICCR5
-        RTS
-        
 ; Initialize Level
 INITLV: JSR CLSR
         JSR M_STOP
@@ -1571,9 +1568,11 @@ INIT_R: RTS
 
 ; Setup Hardware
 SETHW:  LDA #SCRCOM     ; Set background color
-        STA BACKGD
+        STA BACKGD      ; ..
+        LDA #$FF        ; Set color register
+        STA VICCR5      ; ..
         LDA #$4F        ; Set volume and spaceship port color
-        STA VOLUME
+        STA VOLUME      ; ..
         LDA #$00        ; Initialize sound registers
         STA VOICEM      ; ..
         STA VOICEH      ; ..
@@ -1585,8 +1584,8 @@ SETHW:  LDA #SCRCOM     ; Set background color
         LDA #$80        ; Disabled Commodore-Shift
         STA CASECT      ; ..
         JSR M_STOP      ; Turn off music playing
-        LDA #TXTCOL
-        STA TCOLOR
+        LDA #TXTCOL     ; Set color of screen text, like
+        STA TCOLOR      ;   intro, game over, score, etc.
         SEI             ; Install the custom ISR
         LDA #<CSTISR    ; ..
         STA ISR         ; ..
@@ -1666,7 +1665,7 @@ PLL0:   CLC             ; Hide all the populated objects
         BNE POPULA
         RTS
 
-; Draw the f        
+; Draw the spaceship, which is the home base of TRBo.       
 SPSHIP: LDA #$3A
         STA SCRPAD
         LDX #$03
@@ -1737,48 +1736,48 @@ PLR2C:  LDA PLAYER
         STA CUR_H 
         RTS
         
+; Random Number
+; Gets a random number between 1 and 16. A contains the
+; maximum value. The random number will be in Y.
+RAND:   STA SCRPAD
+        DEC SCRPAD      ; Behind the scenes, look for a number
+                        ;   between 0 and A - 1. See the INY
+                        ;   below, which compensates
+        JSR BASRND
+        LDA RNDNUM
+        AND #$0F
+        CMP SCRPAD
+        BCC E_RAND      ; Get another random number if this one
+        BEQ E_RAND      ; is greater than the maximum
+        INC SCRPAD
+        LDA SCRPAD
+        BNE RAND
+E_RAND: TAY
+        INY
+        RTS
+        
+; Delay
+; Waits the number of jiffies specified in A
+DELAY:  PHA             ; Doing this because I want to affect
+        LDA #$00        ;   only A in this routine
+        STA TIMER
+        PLA
+DWAIT:  CMP TIMER
+        BNE DWAIT
+        RTS
+        
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA AND TABLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INTRO:  .asc "TRBO$ TURTLE RESCUEBOT",$0d
-        .asc "   BY JASON JUSTIAN",$0d,$0d
-        .asc "    FIRE TO START",$00
+INTRO:  .asc "TRBO?>TURTLE>RESCUEBOT",$0d
+        .asc "   BY>JASON>JUSTIAN",$0d,$0d
+        .asc "    FIRE>TO>START",$00
         
-ENDTXT: .asc $0d,$0d,"   ' MISSION OVER (   ",$00
+ENDTXT: .asc $0d,$0d,"   ' MISSION>OVER (   ",$00
 
-; Custom character set        
-CCHSET: .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; Turtle R
-        .byte $00,$00,$0c,$de,$de,$3f,$12,$36 ; Turtle L
-        .byte $00,$18,$5a,$42,$3c,$3c,$5a,$81 ; Turtle C
-        .byte $0f,$0d,$07,$3c,$42,$99,$3c,$18 ; Robot R
-        .byte $f0,$b0,$e0,$3c,$42,$99,$3c,$18 ; Robot L
-        .byte $3c,$3c,$18,$3c,$42,$bd,$24,$24 ; Robot C
-        .byte $40,$3c,$37,$3c,$3c,$00,$66,$66 ; Patrol R
-        .byte $02,$3c,$ec,$3c,$3c,$00,$66,$66 ; Patrol L
-        .byte $04,$18,$7e,$7e,$3c,$00,$7e,$66 ; Patrol C
-        .byte $00,$30,$cc,$c0,$03,$33,$0c,$00 ; Beam
-        .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
-        .byte $00,$00,$aa,$be,$aa,$28,$82,$82 ; Terminal
-        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
-        .byte $10,$54,$38,$c6,$38,$54,$10,$00 ; Health
-        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; False Wall
-        .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
-        .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
-        .byte $7f,$03,$03,$7f,$40,$40,$7f,$00 ; 2
-        .byte $7f,$01,$01,$7f,$03,$03,$7f,$00 ; 3
-        .byte $43,$43,$43,$7f,$01,$01,$01,$00 ; 4
-        .byte $7f,$40,$40,$7f,$03,$03,$7f,$00 ; 5
-        .byte $7f,$40,$40,$7f,$61,$61,$7f,$00 ; 6
-        .byte $7f,$03,$03,$03,$01,$01,$01,$00 ; 7
-        .byte $7f,$41,$41,$7f,$43,$43,$7f,$00 ; 8
-        .byte $7f,$43,$43,$7f,$01,$01,$01,$00 ; 9
-        .byte $00,$00,$00,$00,$00,$80,$80,$a8 ; Ship 1
-        .byte $00,$00,$00,$00,$00,$00,$00,$0a ; Ship 2
-        .byte $2b,$2f,$0b,$02,$00,$00,$02,$08 ; Ship 3
-        .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship 4
-        .byte $c0,$c0,$c0,$80,$80,$80,$f8,$00 ; Level#
+HSTXT:  .asc "    HI>",$00
 
-; Color map for the above characters, indexed from SPACE
+; Partial color map for some characters indexed from SPACE ($20)
 COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
         .byte $03,$03,$0F,$02,$09,$04,$06,$04
 
@@ -1808,4 +1807,102 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
         .byte $fb,$72                       ; Damaged
         .byte $44,$1F                       ; Bonus
         .byte $2f,$64                       ; Found Health
+        
+PADING: .byte $00,$00,$00,$00,$00,$00,$00,$00
+        .byte $00,$00,$00,$00,$00,$00,$00,$00
+        .byte $00,$00,$00,$00,$00,$00,$00,$00
+        .byte $00,$00,$00,$00,$00,$00,$00,$00     
+        .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; Turtle R
+        .byte $00,$00,$0c,$de,$de,$3f,$12,$36 ; Turtle L
+        .byte $00,$18,$5a,$42,$3c,$3c,$5a,$81 ; Turtle C
+        .byte $0f,$0d,$07,$3c,$42,$99,$3c,$18 ; Robot R
+        .byte $f0,$b0,$e0,$3c,$42,$99,$3c,$18 ; Robot L
+        .byte $3c,$3c,$18,$3c,$42,$bd,$24,$24 ; Robot C
+        .byte $40,$3c,$37,$3c,$3c,$00,$66,$66 ; Patrol R
+        .byte $02,$3c,$ec,$3c,$3c,$00,$66,$66 ; Patrol L
+        .byte $04,$18,$7e,$7e,$3c,$00,$7e,$66 ; Patrol C
+        .byte $00,$30,$cc,$c0,$03,$33,$0c,$00 ; Beam
+        .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
+        .byte $00,$00,$aa,$be,$aa,$28,$82,$82 ; Terminal
+        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
+        .byte $10,$54,$38,$c6,$38,$54,$10,$00 ; Health
+        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; False Wall
+        .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
+        .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
+        .byte $7f,$03
+        
+; The character set must start at $1C00. If you change anything
+; anywhere, you must account for this. The easiest way is to use
+; padding bytes immediately before this character data.
+;
+; The easiest way to tell if you've done this right is to
+; make sure that the object code is exactly 3583 bytes. This is
+; a reliable method as long as you don't add anything AFTER this
+; character data.
+;
+CHDATA: .byte $fe,$80,$be,$a2,$be,$86,$fe,$00 ; @
+        .byte $fe,$02,$02,$fe,$86,$86,$fe,$00 ; A
+        .byte $fc,$84,$84,$fe,$c2,$c2,$fe,$00 ; B
+        .byte $fe,$80,$80,$c0,$c0,$c0,$fe,$00 ; C
+        .byte $fc,$84,$84,$c6,$c2,$c2,$fe,$00 ; D
+        .byte $fe,$80,$80,$f8,$c0,$c0,$fe,$00 ; E
+        .byte $fe,$c0,$c0,$f8,$80,$80,$80,$00 ; F
+        .byte $fe,$c0,$c0,$ce,$82,$82,$fe,$00 ; G
+        .byte $82,$82,$82,$fe,$c2,$c2,$c2,$00 ; H
+        .byte $10,$10,$10,$18,$18,$18,$18,$00 ; I
+        .byte $3e,$02,$02,$c2,$c2,$c2,$fe,$00 ; J
+        .byte $88,$88,$88,$fe,$c2,$c2,$c2,$00 ; K
+        .byte $80,$80,$80,$c0,$c0,$c0,$fe,$00 ; L
+        .byte $fe,$92,$92,$92,$c2,$c2,$c2,$00 ; M
+        .byte $fe,$c2,$c2,$c2,$82,$82,$82,$00 ; N
+        .byte $00,$00,$fe,$86,$86,$86,$fe,$00 ; O
+        .byte $fe,$c2,$c2,$fe,$80,$80,$80,$00 ; P
+        .byte $fe,$c2,$c2,$c2,$8e,$88,$fa,$00 ; Q
+        .byte $fe,$82,$82,$fe,$d8,$cc,$c6,$00 ; R
+        .byte $fe,$80,$80,$fe,$06,$06,$fe,$00 ; S
+        .byte $fe,$18,$18,$18,$10,$10,$10,$00 ; T
+        .byte $c2,$c2,$c2,$82,$82,$82,$fe,$00 ; U
+        .byte $c2,$c2,$c2,$c6,$44,$28,$38,$00 ; V
+        .byte $86,$86,$86,$92,$92,$92,$fe,$00 ; W
+        .byte $c2,$c2,$ee,$38,$ee,$82,$82,$00 ; X
+        .byte $82,$82,$82,$fe,$06,$06,$fe,$00 ; Y
+        .byte $fe,$02,$0e,$38,$e0,$8e,$fe,$00 ; Z
+        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
+        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
+        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
+        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
+        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
+        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; Space
+        .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; Turtle R
+        .byte $00,$00,$0c,$de,$de,$3f,$12,$36 ; Turtle L
+        .byte $00,$18,$5a,$42,$3c,$3c,$5a,$81 ; Turtle C
+        .byte $0f,$0d,$07,$3c,$42,$99,$3c,$18 ; Robot R
+        .byte $f0,$b0,$e0,$3c,$42,$99,$3c,$18 ; Robot L
+        .byte $3c,$3c,$18,$3c,$42,$bd,$24,$24 ; Robot C
+        .byte $40,$3c,$37,$3c,$3c,$00,$66,$66 ; Patrol R
+        .byte $02,$3c,$ec,$3c,$3c,$00,$66,$66 ; Patrol L
+        .byte $04,$18,$7e,$7e,$3c,$00,$7e,$66 ; Patrol C
+        .byte $00,$30,$cc,$c0,$03,$33,$0c,$00 ; Beam
+        .byte $24,$3c,$24,$24,$24,$3c,$24,$24 ; Ladder
+        .byte $00,$00,$aa,$be,$aa,$28,$82,$82 ; Terminal
+        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
+        .byte $10,$54,$38,$c6,$38,$54,$10,$00 ; Health
+        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; False Wall
+        .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
+        .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
+        .byte $7f,$03,$03,$7f,$40,$40,$7f,$00 ; 2
+        .byte $7f,$01,$01,$7f,$03,$03,$7f,$00 ; 3
+        .byte $43,$43,$43,$7f,$01,$01,$01,$00 ; 4
+        .byte $7f,$40,$40,$7f,$03,$03,$7f,$00 ; 5
+        .byte $7f,$40,$40,$7f,$61,$61,$7f,$00 ; 6
+        .byte $7f,$03,$03,$03,$01,$01,$01,$00 ; 7
+        .byte $7f,$41,$41,$7f,$43,$43,$7f,$00 ; 8
+        .byte $7f,$43,$43,$7f,$01,$01,$01,$00 ; 9
+        .byte $00,$00,$00,$00,$00,$80,$80,$a8 ; Ship 1
+        .byte $00,$00,$00,$00,$00,$00,$00,$0a ; Ship 2
+        .byte $2b,$2f,$0b,$02,$00,$00,$02,$08 ; Ship 3
+        .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship 4
+        .byte $00,$00,$00,$00,$00,$7c,$70,$00 ; Text Space
+        .byte $00,$00,$20,$30,$00,$20,$30,$00 ; Colon
+
         
