@@ -76,10 +76,10 @@ CHRAM0 = $1C00          ; Custom Characters, Page 0
 CHRAM1 = $1D00          ; Custom Characters, Page 1
 
 ; These are constants used for direction blocking
-UP     = $01            ; Block - Up
-RIGHT  = $02            ; Block - Right
-DOWN   = $04            ; Block - Down
-LEFT   = $08            ; Block - Left
+UP     = $10            ; Block - Up
+RIGHT  = $20            ; Block - Right
+DOWN   = $40            ; Block - Down
+LEFT   = $80            ; Block - Left
 
 ; These contants are point values
 PT_RES = $64            ; Rescuing a turtle 100 pts
@@ -181,24 +181,24 @@ DATA_H = $0A            ; /
 INIT:   JSR SETHW       ; Set up hardware features
         LDA #$00        ; Initialize high score; this should
         STA HISCOR      ;   survive a RESTORE
-        STA HISC_H      ;   ..
+        STA HISC_H      ;   ,,
         
 ; Welcome Screen
 WELCOM: JSR CLSR        ; Clear screen
         JSR M_STOP      ; Stop music player, in case of RESTORE
         JSR MAZE        ; Draw Maze
         LDA #<INTRO     ; Show the intro screen
-        LDY #>INTRO     ; ..
-        JSR PRTSTR      ; ..
+        LDY #>INTRO     ; ,,
+        JSR PRTSTR      ; ,,
         LDY #$05        ; Populate some turtles
-        LDX #CH_TUR     ; ..
-        JSR POPULA      ; ..
+        LDX #CH_TUR     ; ,,
+        JSR POPULA      ; ,,
         LDY #$02        ; Populate some patrols
-        LDX #CH_PAL     ; ..
-        JSR POPULA      ; ..
+        LDX #CH_PAL     ; ,,
+        JSR POPULA      ; ,,
         LDY #$01        ; Add one TRBo
-        LDX #CH_PLR     ; ..
-        JSR POPULA      ; ..
+        LDX #CH_PLR     ; ,,
+        JSR POPULA      ; ,,
         JSR REVEAL      ; Reveal the board
         JSR SPSHIP      ; Draw the spaceship
         JSR WAIT        ; Wait for the fire button
@@ -206,18 +206,18 @@ WELCOM: JSR CLSR        ; Clear screen
 ; Initialize score and game locations
 MANUAL: JSR CLSR
         LDA #<MANTXT    ; Show the game manual
-        LDY #>MANTXT    ; ..
-        JSR PRTSTR      ; ..
+        LDY #>MANTXT    ; ,,
+        JSR PRTSTR      ; ,,
         JSR WAIT        ; Wait for the fire button again
 
 START:  LDA #$00        ; Initialize to zero
         STA GLEVEL      ; * The level
         STA SCORE       ; * The game score
-        STA SCOR_H      ;   ..
+        STA SCOR_H      ;   ,,
         STA FADE        ; * Disable music fade-out
         JSR SOUND       ; * Launch the game start sound
         LDA #ST_HLT     ; Initialize health
-        STA HEALTH      ; ..
+        STA HEALTH      ; ,,
 
 ; Start a new level
 STLEV:  JSR INITLV
@@ -234,19 +234,22 @@ FRWAIT: JSR READJS      ; Read joystick
         JSR PL_MV       ; Process the player's movement
         JSR NPC_MV      ; Process non-player movement
         LDA HEALTH      ; Is the player still alive?
-        BEQ GAMOVR      ; ..
+        BEQ GAMOVR      ; ,,
         LDA TURTLS      ; Has the level been completed?
-        BEQ LVLUP       ; ..
+        BEQ LVLUP       ; ,,
         JMP MAIN
 
 ; Level Up
 ; When the turtles are either rescued or killed off
 LVLUP:  LDA PLAYER      ; Is the player home?
-        CMP #$59        ; Yes, I know there are two possible
-        BNE MAIN        ;   "homes" on the screen, but one of
-                        ;   is usually embedded in a floor.
+        CMP #$59        ; If not, keep playing.
+        BNE MAIN        ; ,,
+        LDA PLR_H       ; ,,
+        CMP #>SCREEN    ; ,,
+        BNE MAIN        ; ,,
+        JSR REVEAL      ; Reveal the board
         LDA #$0F        ; Fade out the music
-        STA FADE        ; ..
+        STA FADE        ; ,,
         LDA #$A0        ; Wait a few seconds to let the music
         JSR DELAY       ;   fade out
         LDA #$0E        ; Set the DATA pointer to the start
@@ -257,21 +260,21 @@ LVLUP:  LDA PLAYER      ; Is the player home?
         LDA #$08        ; Ensure that the volume is up, but
         STA VOLUME      ;   not too high
         LDA HEALTH      ; Store health for bonus countdown
-        PHA             ; ..
+        PHA             ; ,,
 BONUS:  LDA FX_BON      ; Launch the bonus sound effect
         JSR SOUND       ;   for each remaining health gear
         LDA #PT_BON     ; Increase the score for each gear
-        JSR USCORE      ; ..
+        JSR USCORE      ; ,,
         LDA #$01        ; Set the color of each remaining
         LDY #$00        ;   gear to white
-        STA (DATA_L),Y  ;   ..
-        INC DATA_L      ;   ..
+        STA (DATA_L),Y  ;   ,,
+        INC DATA_L      ;   ,,
         LDA #$08        ; A delay for each health count so that
-        JSR DELAY       ;   .. the player may count along!
+        JSR DELAY       ;   ,, the player may count along!
         DEC HEALTH      ; Do this BONUS loop until the health
         BNE BONUS       ;   has been counted
         PLA             ; Restore health afterward, as promised
-        STA HEALTH      ; ..
+        STA HEALTH      ; ,,
         INC GLEVEL      ; Advance the level
         LDA #$80        ; One more little delay so the player
         JSR DELAY       ;   can catch his or her breath
@@ -282,19 +285,19 @@ BONUS:  LDA FX_BON      ; Launch the bonus sound effect
 ; Game Over, Juggalos and Juggalettes!        
 GAMOVR: JSR REVEAL      ; Reveal the board
         LDA #CH_PLR     ; Show the player
-        LDY #$00        ; ..
-        STA (PLAYER),Y  ; ..
+        LDY #$00        ; ,,
+        STA (PLAYER),Y  ; ,,
         LDA #$06        ; Make the board blue, so that it
 BLUE:   STA COLOR,Y     ;   looks more ominous
         STA COLOR+$0100,Y
         INY
         BNE BLUE
         JSR HOME        ; Show the Game Over text
-        LDA #<ENDTXT    ; ..
-        LDY #>ENDTXT    ; ..
-        JSR PRTSTR      ; ..
+        LDA #<ENDTXT    ; ,,
+        LDY #>ENDTXT    ; ,,
+        JSR PRTSTR      ; ,,
         LDA #$00        ; Show the final score
-        JSR USCORE      ; ..
+        JSR USCORE      ; ,,
         JSR HSCORE      ; Calculate and show high score
         LDA #$10        ; Slow the music down, so that it
         STA TEMPO       ;   sounds more ominous. I love ominous!
@@ -385,13 +388,13 @@ DOMOVE: JSR ISBLOC      ; Is the CURSOR space open?
         TXA
         PHA             ; Save the player character
         LDX UNDER       ; Restore the previous character
-        LDA PLAYER      ; ..
-        LDY PLR_H       ; ..
-        SEC             ; ..
-        JSR PLACE       ; ..
+        LDA PLAYER      ; ,,
+        LDY PLR_H       ; ,,
+        SEC             ; ,,
+        JSR PLACE       ; ,,
         LDY #$00        ; Get the current character at CURSOR
         LDA (CURSOR),Y  ;   and save it for when we move away
-        STA UNDER       ;   ..
+        STA UNDER       ;   ,,
 ENCTER: CMP #CH_TER     ; Has the player encountered the
         BNE ENCHLT      ;   computer terminal?
         JSR FNDTER      ; If so, handle it
@@ -400,23 +403,23 @@ ENCHLT: CMP #CH_HLT     ; Has the player encountered a health
         BNE PL_PL       ;   boost?
         JSR FNDHLT      ; If so, handle it
 PL_PL:  PLA             ; Place the player
-        TAX             ; ..
-        LDA CURSOR      ; ..
-        LDY CUR_H       ; ..
-        SEC             ; ..
-        JSR PLACE       ; ..
+        TAX             ; ,,
+        LDA CURSOR      ; ,,
+        LDY CUR_H       ; ,,
+        SEC             ; ,,
+        JSR PLACE       ; ,,
         LDA PLR_H       ; Store the player position temporarily
         PHA             ;   so that we have the previous
         LDA PLAYER      ;   position after the update
-        PHA             ;   ..
+        PHA             ;   ,,
         LDA CURSOR      ; Update player position
-        STA PLAYER      ; ..
-        LDA CUR_H       ; ..
-        STA PLR_H       ; ..
+        STA PLAYER      ; ,,
+        LDA CUR_H       ; ,,
+        STA PLR_H       ; ,,
         PLA             ; Put the previous position into 
         STA CURSOR      ;   CURSOR so that we can look around
         PLA             ;   for a turtle chain
-        STA CUR_H       ; ..
+        STA CUR_H       ; ,,
         LDY #$00        ; If there's a turtle in the previous
         LDA (CURSOR),Y  ;   position, then a turtle chain can't
         JSR IS_TUR      ;   be started, or else that turle will
@@ -432,16 +435,16 @@ NPC_MV: LDA SCREEN+$5A  ; First, look for a turtle near the
         JSR IS_TUR      ;   spaceship. This turtle will be
         BNE MVPATS      ;   rescued. Rescue involves:
         LDA #CH_SPC     ;   (1) Removing the turtle
-        STA SCREEN+$5A  ;   ..
+        STA SCREEN+$5A  ;   ,,
         DEC TURTLS      ;   (2) Decrementing the turtle count
         LDA #FX_RES     ;   (3) Launching a rescue sound
-        JSR SOUND       ;   ..
+        JSR SOUND       ;   ,,
         LDA #PT_RES     ;   (4) Adding to the score
-        JSR USCORE      ;   ..
+        JSR USCORE      ;   ,,
         LDA #$5A        ; Set the CURSOR to pull in
         STA CURSOR      ;   additional turtles in the chain
-        LDA #>SCREEN    ;   ..
-        STA CUR_H       ;   ..
+        LDA #>SCREEN    ;   ,,
+        STA CUR_H       ;   ,,
         LDA #LEFT
         STA DIRBLK
         JSR TURCHN
@@ -540,18 +543,18 @@ MOVETU: LDY #$00
         BNE PL_TUR      ; If not, use the selected graphic
         LDX #CH_TUC     ; Otherwise, switch to the ladder turtle
 PL_TUR: LDA DATA_L      ; Place the turtle in the DATA position
-        LDY DATA_H      ; ...
-        SEC             ; ...
-        JSR PLACE       ; ...
+        LDY DATA_H      ; ,,
+        SEC             ; ,,
+        JSR PLACE       ; ,,
         LDX #CH_SPC     ; Default to replacing with space
         PLA
         CMP #CH_TUC     ; But if the turtle is coming off a
         BNE PL_SL       ;   ladder, replace with a ladder
         LDX #CH_LAD
 PL_SL : LDA CURSOR      ; Place the space or ladder
-        LDY CUR_H       ; ...
-        SEC             ; ...
-        JSR PLACE       ; ...
+        LDY CUR_H       ; ,,
+        SEC             ; ,,
+        JSR PLACE       ; ,,
         JMP TURCHN
 CHN_R:  RTS
         
@@ -586,13 +589,13 @@ CHN_R:  RTS
 PAT_AI: TXA
         ASL             ; Index eight bytes per patrol so that
         ASL             ;   X is the real table index
-        ASL             ;   ..
-        TAX             ;   ..
+        ASL             ;   ,,
+        TAX             ;   ,,
         STX TABIDX      ; Save the current real table index
         LDA PATROL,X    ; Set the CURSOR to the patrol's current
         STA CURSOR      ;   position
-        LDA PATL_H,X    ;   ..
-        STA CUR_H       ;   ..
+        LDA PATL_H,X    ;   ,,
+        STA CUR_H       ;   ,,
 AI_I:   LDA #$00        ; Reset whether this patrol has fired
         STA DIDFIR      ;   to check after line-of-sight (LOS)                        
         JSR LOS         ; Check line of sight
@@ -601,7 +604,7 @@ AI_I:   LDA #$00        ; Reset whether this patrol has fired
         BNE AI_R        ;   do nothing else
 AI_II:  LDX TABIDX
         LDA PAT_DI,X    ; Get current direction
-        AND #$05        ; UP + DOWN
+        AND #$50        ; UP + DOWN
         BEQ AI_III      ; If not on ladder, go to next step
         JSR ONLAD       ; If so, do the On Ladder routine
         JMP PAT_DR      ; Draw the patrol
@@ -609,7 +612,7 @@ AI_III: JSR OFFLAD      ; Do the Off Ladder routine
 PAT_DR: LDY #CH_PAC     ; Determine the character based
         LDX TABIDX      ;   on the new direction
         LDA PAT_DI,X    ;
-        AND #$05        ; Is the direction up or down?
+        AND #$50        ; Is the direction up or down?
         BNE GOTCHR      ; If so, climbing is already in Y
         LDY #CH_PAL
         LDA PAT_DI,X
@@ -617,49 +620,43 @@ PAT_DR: LDY #CH_PAC     ; Determine the character based
         BNE GOTCHR      ; If not, left is already in Y
         LDY #CH_PAR     ; Switch to right
 GOTCHR: TYA             ; Stash the new character
-        PHA             ; ..
+        PHA             ; ,,
         LDA PAT_UN,X    ; Get the character under the patrol
         TAX             ; Place the old character
-        LDA DATA_L      ; ..
-        LDY DATA_H      ; ..
-        SEC             ; .. 
-        JSR PLACE       ; ..
+        LDA DATA_L      ; ,,
+        LDY DATA_H      ; ,,
+        SEC             ; ,, 
+        JSR PLACE       ; ,,
         JSR OPEN2P      ; Update the patrol's UNDER value
-        BNE UP_PAT      ;   ..
-        LDX TABIDX      ;   ..
-        STA PAT_UN,X    ;   ..
+        BNE UP_PAT      ; ,,
+        LDX TABIDX      ; ,,
+        STA PAT_UN,X    ; ,,
 UP_PAT: LDA CURSOR      ; Update the patrol table entry
-        STA PATROL,X    ; ..
-        LDA CUR_H       ; ..
-        STA PATL_H,X    ; ..
+        STA PATROL,X    ; ,,
+        LDA CUR_H       ; ,,
+        STA PATL_H,X    ; ,,
         PLA             ; Put the new character to draw in X
         TAX             ; Place the new patrol
-        LDA CURSOR      ; ..
-        LDY CUR_H       ; ..
-        SEC             ; ..
-        JSR PLACE       ; ..
+        LDA CURSOR      ; ,,
+        LDY CUR_H       ; ,,
+        SEC             ; ,,
+        JSR PLACE       ; ,,
 AI_R:   LDA TABIDX      ; Restore X from Real Table Index back
         LSR             ;   to the patrol index, because the
         LSR             ;   caller uses X as an iterator
-        LSR             ;   ..
-        TAX             ;   ..
+        LSR             ;   ,,
+        TAX             ;   ,,
         RTS  
 
 ; Patrol On Ladder        
 ONLAD:  JSR MCUR_L
         JSR OPEN2P      ; Is there a left corridor?
-        BNE CL_R        ; No, then check right
-        LDA TIMER       ; Sometimes if left is open,
-        CMP #$D0        ;   we'll randomly check
-        BCS CL_R        ;   right anyway
-        LDA #LEFT       ; Change direction to left
-        JSR MVOFFL      ; Move off ladder
-        RTS
+        BEQ GOOFF
 CL_R:   JSR RS_CUR
         JSR MCUR_R
         JSR OPEN2P      ; Is there a right corridor?
         BNE CL_U
-        LDA #RIGHT      ; Change direction to right
+GOOFF:  JSR RS_CUR
         JSR MVOFFL
         RTS
 CL_U:   JSR RS_CUR
@@ -673,12 +670,12 @@ CL_U:   JSR RS_CUR
         CMP #>SCREEN    ;   the top level, do nothing. If
         BNE ON_R        ;   it gets TO the top level, then
         LDA CURSOR      ;   switch its direction to Down
-        CMP #$58        ;   ..
-        BCC ON_CR       ;   ..
-        CMP #$6E        ;   ..
-        BCS ON_R        ;   ..
-        LDA #DOWN       ;   ..
-        STA PAT_TR,X    ;   ..
+        CMP #$58        ;   ,,
+        BCC ON_CR       ;   ,,
+        CMP #$6E        ;   ,,
+        BCS ON_R        ;   ,,
+        LDA #DOWN       ;   ,,
+        STA PAT_TR,X    ;   ,,
         BNE ON_R
 CL_D:   JSR RS_CUR
         JSR MCUR_D      ; No need to check stuff here, because        
@@ -688,7 +685,7 @@ CL_D:   JSR RS_CUR
         BEQ ON_R
 STUCK:  LDA #UP         ; Set the travel direction to Up to
         STA PAT_TR,X    ;   avoid getting the hell stuck
-        STA PAT_DI,X    ;   ..
+        STA PAT_DI,X    ;   ,,
 ON_CR:  JSR RS_CUR
 ON_R:   RTS
 
@@ -708,7 +705,7 @@ OFFLAD: LDA PAT_TR,X    ; If the travel direction is Down, see
 CHPROB: CPY TIMER       ; Check the probability against the
         BCS CO_CHK      ;   jiffy clock
         LDA #UP         ; Set the travel direction to Up
-        STA PAT_TR,X    ; ..
+        STA PAT_TR,X    ; ,,
 CO_CHK: LDA PAT_BF,X    ; If the Bump flag is unset, then don't
         BEQ CO_R        ;   check any vertical directions yet
         LDA PAT_TR,X    ; Is the Travel direction Down?
@@ -718,7 +715,7 @@ CO_CHK: LDA PAT_BF,X    ; If the Bump flag is unset, then don't
         JSR OPEN2P      ; Can the patrol move down?
         BNE CO_R        ; If not open, then move left or right
         LDA #DOWN       ; Move onto the ladder going down
-        STA PAT_DI,X    ; ..
+        STA PAT_DI,X    ; ,,
         RTS
 CO_U:   JSR RS_CUR
         JSR MCUR_U
@@ -727,7 +724,7 @@ CO_U:   JSR RS_CUR
         CMP #CH_LAD     ; Checking specifically for a ladder, so
         BNE CO_R        ;   patrol doesn't climb off the screen
         LDA #UP         ; Move onto the ladder going up
-        STA PAT_DI,X    ; ..
+        STA PAT_DI,X    ; ,,
         RTS
 CO_R:   JSR RS_CUR
         LDA PAT_DI,X    ; Is the patrol moving right?
@@ -744,7 +741,7 @@ CO_L:   JSR RS_CUR      ; No need to check direction flag here
         RTS        
 BUMP:   JSR RS_CUR      ; Cannot move; restore the CURSOR
         LDA #$01        ; Set the Bump flag
-        STA PAT_BF,X    ; ..
+        STA PAT_BF,X    ; ,,
         LDA #RIGHT      ; If the direction is not already
         CMP PAT_DI,X    ;   to the right, then set it
         BEQ D2LEFT
@@ -755,25 +752,28 @@ D2LEFT: LDA #LEFT
         RTS             ; Return to draw routine
         
 ; Move Off Ladder
-; Sets the direction to the one specifed in A. But, more
+; Sets the direction to a pseudo-random one. But, more
 ; importantly, this sets the bottom ladder location if the
 ; patrol has a downward travel. If the patrol reaches this
 ; point again, it will change its travel to upward most
 ; of the time. Only the low byte is used for this operation
 ; since the point is to keep the patrol from getting
 ; stuck locally.
-MVOFFL: PHA
-        LDA PAT_DI,X
+MVOFFL: LDA PAT_DI,X
         CMP #DOWN
         BNE CH_DIR
         LDA DATA_L
         STA PAT_LL,X
-CH_DIR  PLA
-        STA PAT_DI,X
+CH_DIR  STA PAT_DI,X
         TXA             ; Clear or set the Bump flag, based
         AND #$01        ;   on which patrol number this is
-        STA PAT_BF,X    ;   ..
-        RTS        
+        STA PAT_BF,X    ;   ,,
+        LDA #LEFT       ; Default to left, which is nice and $80
+        CMP TIMER       ; But semi-randomly face right instead
+        BCS SETDIR
+        LDA #RIGHT
+SETDIR: STA PAT_DI,X
+        RTS       
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MOVEMENT SUBROUTINES
@@ -988,18 +988,18 @@ SCDRAW: JSR HOME
 ; the high score. In either case, display the high score
 HSCORE: LDA HISC_H      ; Is the last score greater than
         CMP SCOR_H      ;   the high score?
-        BCC NEWHS       ;   ..
-        BNE HSDRAW      ;   ..
-        LDA SCORE       ;   ..
-        CMP SCOR_H      ;   ..
-        BCC HSDRAW      ;   ..
+        BCC NEWHS       ;   ,,
+        BNE HSDRAW      ;   ,,
+        LDA SCORE       ;   ,,
+        CMP SCOR_H      ;   ,,
+        BCC HSDRAW      ;   ,,
 NEWHS:  LDA SCORE       ; A new high score has been
         STA HISCOR      ; achived; update high score
-        LDA SCOR_H      ; ..
-        STA HISC_H      ; ..
+        LDA SCOR_H      ; ,,
+        STA HISC_H      ; ,,
 HSDRAW: LDA #<HSTXT     ; Show the high score text
-        LDY #>HSTXT     ; ..
-        JSR PRTSTR      ; ..
+        LDY #>HSTXT     ; ,,
+        JSR PRTSTR      ; ,,
         LDX HISCOR
         LDA HISC_H
         JSR PRTFIX
@@ -1053,7 +1053,7 @@ REV_UD: JSR CUR_RV      ; Show the current CURSOR
 ; Reveal the Board
 ; Usally a benefit of activating the terminal
 REVEAL: LDX #$00
-RL0:    TXA             ; Set up two character color calls...
+RL0:    TXA             ; Set up two character color calls,,
         CMP #$6D
         BCC RP1         ; Ignore the top part of the screen
         PHA
@@ -1101,15 +1101,15 @@ DIG:    LDA HEALTH
         PHA
         JSR PLR2C       ; Set the CURSOR
         LDA DIRBLK      ; Which direction is blocked?
-D_U:    CMP #$01
+D_U:    CMP #UP
         BNE D_R
         JSR MCUR_U
         JMP DO_DIG
-D_R:    CMP #$02
+D_R:    CMP #RIGHT
         BNE D_D
         JSR MCUR_R
         JMP DO_DIG
-D_D     CMP #$04
+D_D     CMP #DOWN
         BNE D_L
         JSR MCUR_D
         JMP DO_DIG
@@ -1121,7 +1121,7 @@ DO_DIG: LDY #$00
         LDA #CH_SPC
         STA (CURSOR),Y
         LDA #FX_DIG     ; Launch the digging sound
-        JSR SOUND       ; ..
+        JSR SOUND       ; ,,
         JSR DAMAGE      ; Take one point of damage
 DIG_R:  PLA
         STA CURSOR
@@ -1148,11 +1148,11 @@ FNDHLT: LDA #CH_SPC
         STA UNDER       ; Goes away after use
         LDA HEALTH
         CMP #$08        ; Already maxed out
-        BCS HLT_R       ; ..
+        BCS HLT_R       ; ,,
         INC HEALTH      ; Increase and display
-        JSR SHOWHL      ; ..
+        JSR SHOWHL      ; ,,
 HLT_R:  LDA #FX_HLT     ; Launch the bonus sound
-        JSR SOUND       ; ..
+        JSR SOUND       ; ,,
         LDA #PT_HLT
         JSR USCORE
         RTS
@@ -1227,7 +1227,7 @@ NXFX:   LDA FXLEN       ; Has the sound been launched?
         DEC FXCD
         BNE FX_R
         LDA FXCDRS      ; Reset the countdown
-        STA FXCD        ; ..
+        STA FXCD        ; ,,
         LDX #$00
         ROL REG_FX      ; Rotate the register left
         BCC EROLL
@@ -1311,9 +1311,9 @@ LOS_R:  PLA
         RTS 
 FIBEAM: LDA #$0F        ; Discharge the beam
         STA DIDFIR      ; Mark beam as fired for this patrol
-        SEC             ; ..
-        SBC GLEVEL      ; ..
-        STA PAT_BR,X  ; ..
+        SEC             ; ,,
+        SBC GLEVEL      ; ,,
+        STA PAT_BR,X  ; ,,
         INC HUNTER      ; Activate Hunter mode
         INC FIRED       ; Fire happened
         LDA #$07
@@ -1343,10 +1343,10 @@ DRBEAM: LDY #$00
         JMP LOS_R
 OTHER:  PHA
         LDX #CH_BEA     ; Draw the beam
-        LDA CURSOR      ; ..
-        LDY CUR_H       ; ..
-        SEC             ; ..
-        JSR PLACE       ; ..
+        LDA CURSOR      ; ,,
+        LDY CUR_H       ; ,,
+        SEC             ; ,,
+        JSR PLACE       ; ,,
         PLA             ; Okay, what did we hit?
         JSR IS_COR      ; Is it a corridor?
         BEQ NXBEAM
@@ -1397,8 +1397,8 @@ L1:     LDA #CH_WAL
 FWAL:   JSR MCUR_D      ;   one side of the board to the other,
         LDA #CH_FWA     ;   which is something that should be
         STA (CURSOR),Y  ;   physically impossible.
-        DEX             ;   ..
-        BNE FWAL        ;   ..
+        DEX             ;   ,,
+        BNE FWAL        ;   ,,
         LDA #$5A        ; Offset for the maze
         STA CURSOR
         LDA #>SCREEN
@@ -1486,7 +1486,7 @@ KNLOOP: STA (CURSOR),Y  ; Knock out Y walls
         ASL
         TAY
         LDA #CH_LAD     ; Put a ladder at the chosen position
-        STA (CURSOR),Y  ; ..
+        STA (CURSOR),Y  ; ,,
         LDA CURSOR
         SEC
         SBC #$16        ; Go up one line
@@ -1494,13 +1494,13 @@ KNLOOP: STA (CURSOR),Y  ; Knock out Y walls
         BCS CKNOCK
         DEC CUR_H 
 CKNOCK: LDA #CH_LAD     ; Knock out ceiling with a ladder
-        STA (CURSOR),Y  ; ..
+        STA (CURSOR),Y  ; ,,
 RESET:  PLA             ; Start restoring things for return
-        TAY             ; ..
-        PLA             ; ..
-        STA CUR_H       ; ..
-        PLA             ; ..
-        STA CURSOR      ; ..
+        TAY             ; ,,
+        PLA             ; ,,
+        STA CUR_H       ; ,,
+        PLA             ; ,,
+        STA CURSOR      ; ,,
         RTS   
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1519,34 +1519,34 @@ INITLV: JSR CLSR
         LDA #CH_SPC
         STA UNDER       ; Start with a space under player
         LDY #$01        ; Populate the location terminal
-        LDX #CH_TER     ; ..
-        JSR POPULA      ; ..
+        LDX #CH_TER     ; ,,
+        JSR POPULA      ; ,,
         LDA GLEVEL      ; Populate some turtles
-        ASL             ; ..
-        ADC #$02        ; ..
-        CMP #MAXTUR     ; .. With a limit
-        BCC POPTUR      ; ..
-        LDA #$0C        ; ..
-POPTUR: TAY             ; ..
-        STY TURTLS      ; ..
-        LDX #CH_TUR     ; ..
-        JSR POPULA      ; ..
+        ASL             ; ,,
+        ADC #$02        ; ,,
+        CMP #MAXTUR     ; ,, With a limit
+        BCC POPTUR      ; ,,
+        LDA #$0C        ; ,,
+POPTUR: TAY             ; ,,
+        STY TURTLS      ; ,,
+        LDX #CH_TUR     ; ,,
+        JSR POPULA      ; ,,
         LDA #$00        ; Initialize patrol data table
-        STA PATRLS      ; ..
+        STA PATRLS      ; ,,
         LDA GLEVEL      ; Populate some patrols
-        CMP #MAXPAT-1   ; .. With a limit
-        BCC POPPAT      ; ..
-        LDA #MAXPAT-1   ; ..
-POPPAT: TAY             ; ..
-        INY             ; ..
-        LDX #CH_PAL     ; ..
-        JSR POPULA      ; ..
+        CMP #MAXPAT-1   ; ,, With a limit
+        BCC POPPAT      ; ,,
+        LDA #MAXPAT-1   ; ,,
+POPPAT: TAY             ; ,,
+        INY             ; ,,
+        LDX #CH_PAL     ; ,,
+        JSR POPULA      ; ,,
         LDX #CH_HLT     ; Populate a couple health boosts
-        LDY #$02        ; ..
-        JSR POPULA      ; ..
+        LDY #$02        ; ,,
+        JSR POPULA      ; ,,
         LDA #$08        ; Set the music tempo
-        STA TEMPO       ; ..
-        STA MUCD        ; ..
+        STA TEMPO       ; ,,
+        STA MUCD        ; ,,
         LDA GLEVEL
         AND #$07        ; Limit to 8 musical themes
         JSR MUSIC       ; Select the theme
@@ -1565,33 +1565,33 @@ INIT_R: RTS
 
 ; Setup Hardware
 SETHW:  LDA #SCRCOM     ; Set background color
-        STA BACKGD      ; ..
+        STA BACKGD      ; ,,
         LDA #$FF        ; Set color register
-        STA VICCR5      ; ..
+        STA VICCR5      ; ,,
         LDA #$4F        ; Set volume and spaceship port color
-        STA VOLUME      ; ..
+        STA VOLUME      ; ,,
         LDA #$00        ; Initialize sound registers
-        STA VOICEM      ; ..
-        STA VOICEH      ; ..
-        STA NOISE       ; ..
+        STA VOICEM      ; ,,
+        STA VOICEH      ; ,,
+        STA NOISE       ; ,,
         LDA #$7F        ; Set DDR to read East
-        STA VIA2DD      ; ..
+        STA VIA2DD      ; ,,
         LDA TIMER       ; Set the random number seed
-        STA RNDNUM      ; ..
+        STA RNDNUM      ; ,,
         LDA #$80        ; Disabled Commodore-Shift
-        STA CASECT      ; ..
+        STA CASECT      ; ,,
         JSR M_STOP      ; Turn off music playing
         LDA #TXTCOL     ; Set color of screen text, like
         STA TCOLOR      ;   intro, game over, score, etc.
         SEI             ; Install the custom ISR
-        LDA #<CSTISR    ; ..
-        STA ISR         ; ..
-        LDA #>CSTISR    ; ..
-        STA ISR+1       ; ..
+        LDA #<CSTISR    ; ,,
+        STA ISR         ; ,,
+        LDA #>CSTISR    ; ,,
+        STA ISR+1       ; ,,
         LDA #<WELCOM    ; Install the custom NMI (restart)
-        STA NMI         ; .. 
-        LDA #>WELCOM    ; ..
-        STA NMI+1       ; ..
+        STA NMI         ; ,, 
+        LDA #>WELCOM    ; ,,
+        STA NMI+1       ; ,,
         LDA #SPEED      ; Initialize frame countdown before
         STA FRCD        ;   ISR is started
         CLI
@@ -1628,7 +1628,7 @@ PL1:    LDA #$2C        ; Drop down that number of lines
         INC DATA_H
 RY:     DEY
         BPL PL1
-        LDA #$0A        ; Get a random X-axis
+        LDA #$0B        ; Get a random X-axis
         JSR RAND
 PL2:    LDA #$02        ; Move over that number of columns
         CLC             ;   in the maze
@@ -1651,9 +1651,15 @@ PLCNEW  PLA
         TAX
         LDA DATA_L
         LDY DATA_H
-        CPX #CH_PAL     ; If placing a patrol,
-        BNE PLL0        ;
-        JSR ADDPAT      ;   add it to the patrol data table
+        CPX #CH_PAL     ; If placing a patrol, add it
+        BNE PLL0        ;   to the patrol data table
+        PHA             ;   ,,
+        TXA             ;   ,,
+        PHA             ;   ,,
+        JSR ADDPAT      ;   ,,
+        PLA             ;   ,,
+        TAX             ;   ,,
+        PLA             ;   ,,
 PLL0:   CLC             ; Hide all the populated objects
         JSR PLACE       ; Place the character in X, and
         PLA             ; Decrement the character number
@@ -1663,53 +1669,43 @@ PLL0:   CLC             ; Hide all the populated objects
         RTS
 
 ; Draw the spaceship, which is the home base of TRBo.       
-SPSHIP: LDA #$3A
-        STA SCRPAD
-        LDX #$03
-SSL0:   LDY SHOFF,X
-        LDA SCRPAD
-        STA SCREEN,Y
-        LDA #$0F
-        STA COLOR,Y
-        INC SCRPAD
-        DEX
-        BPL SSL0
+SPSHIP: LDA #$3A        ; Starting character for the
+        STA SCRPAD      ;   four-piece ship
+        LDX #$03        ; Each character has an offset in
+SSL0:   LDY SHOFF,X     ;   the SHOFF table, so iterate
+        LDA SCRPAD      ;   through all four pieces and
+        STA SCREEN,Y    ;   place them at their proper
+        LDA #$0F        ;   offsets. Set a color for each
+        STA COLOR,Y     ;   one as well
+        INC SCRPAD      ;   ,,
+        DEX             ;   ,,
+        BPL SSL0        ;   ,,
         RTS
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME DATA MANAGEMENT SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Add Patrol
-ADDPAT: PHA
-        TYA
-        PHA
-        TXA
-        PHA
-        LDA PATRLS
+ADDPAT: LDA PATRLS
         ASL             ; Allocate eight bytes per patrol
-        ASL             ; ..
-        ASL             ; ..
+        ASL             ; ,,
+        ASL             ; ,,
         TAX             ; Real Table Index
         LDA DATA_L      ; Set location low
-        STA PATROL,X    ; ..
+        STA PATROL,X    ; ,,
         LDA DATA_H      ; Set location high
-        STA PATL_H,X    ; ..
+        STA PATL_H,X    ; ,,
         LDA #$0F        ; Set recharge time to 15 frames
-        STA PAT_BR,X    ; ..
+        STA PAT_BR,X    ; ,,
         LDA #LEFT       ; Set direction left
-        STA PAT_DI,X    ; ..
+        STA PAT_DI,X    ; ,,
         LDA #UP         ; Set initial vertical travel upward
-        STA PAT_TR,X    ; ..
+        STA PAT_TR,X    ; ,,
         LDA #$01        ; Set Bump flag
-        STA PAT_BF,X    ; ..
+        STA PAT_BF,X    ; ,,
         LDA #CH_SPC     ; Set space under the patrol
-        STA PAT_UN,X    ; ..
+        STA PAT_UN,X    ; ,,
         INC PATRLS
-        PLA
-        TAX
-        PLA
-        TAY
-        PLA
         RTS
   
 ; Set DATA Pointer from CURSOR
@@ -1768,11 +1764,11 @@ DWAIT:  CMP TIMER
 
 ; Wait for Fire
 WAIT:   JSR READJS      ; Wait for fire to be released
-        AND #$20        ; ..
-        BNE WAIT        ; ..
+        AND #$20        ; ,,
+        BNE WAIT        ; ,,
 WAIT_F: JSR READJS      ; Wait for the fire button
-        AND #$20        ; ..
-        BEQ WAIT_F      ; ..
+        AND #$20        ; ,,
+        BEQ WAIT_F      ; ,,
         RTS
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1787,14 +1783,15 @@ ENDTXT: .asc $0d,$0d,$0d,"   ' MISSION>OVER (",$00
 HSTXT:  .asc "  HI>",$00
 
 ; Instructional manual text
-MANTXT: .asc $0d,$0d,$0d,$0d
+MANTXT: .asc $0d,$0d,$0d
         .asc "TRBO>$ YOUR MISSION IS",$0d
         .asc "TO LEAD BABY TURTLES>!",$0d
-        .asc "TO YOUR SPACESHIP>",$5b,$0d,$0d
+        .asc "TO SAFETY>",$5b,$0d,$0d
         .asc "AVOID THE PATROLS>(",$0d,$0d
         .asc "GEARS>. FIX DAMAGE",$0d,$0d
         .asc "FIRE TO DIG COSTS .",$0d,$0d
-        .asc "TERMINALS>@ GIVE INTEL"
+        .asc "TERMINALS>@ GIVE INTEL",$0d
+        .asc "GOOD LUCK"
 
 ;   IMPORTANT! The first byte of the COLMAP below is $00, which
 ;   serves double-duty as the end of MANTXT. Things might get
@@ -1830,9 +1827,7 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
         .byte $fb,$72                       ; Damaged
         .byte $44,$1F                       ; Bonus
         .byte $2f,$64                       ; Found Health
-
-PADING: .byte "1C00" 
-        
+       
 ; The character set must start at $1C00. If you change anything
 ; anywhere, you must account for this. The easiest way is to use
 ; padding bytes immediately before this character data.
