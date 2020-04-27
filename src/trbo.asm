@@ -208,9 +208,9 @@ MANUAL: JSR CLSR
         LDA #<MANTXT    ; Show the game manual
         LDY #>MANTXT    ; ,,
         JSR PRTSTR      ; ,,
-        JSR WAIT        ; Wait for the fire button again
-
-START:  LDA #$00        ; Initialize to zero
+        
+START:  JSR WAIT        ; Wait for the fire button again
+        LDA #$00        ; Initialize to zero
         STA GLEVEL      ; * The level
         STA SCORE       ; * The game score
         STA SCOR_H      ;   ,,
@@ -302,8 +302,9 @@ BLUE:   STA COLOR,Y     ;   looks more ominous
         LDA #$10        ; Slow the music down, so that it
         STA TEMPO       ;   sounds more ominous. I love ominous!
         STA FADE        ; Fade out music
-        JMP WAIT        ; Back to waiting for fire button to
+        JMP START       ; Back to waiting for fire button to
                         ;   start a new game
+        
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; INTERRUPT SERVICE ROUTINE
