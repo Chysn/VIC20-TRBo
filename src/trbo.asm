@@ -282,22 +282,21 @@ BLUE:   STA COLOR,Y     ;   looks more ominous
         LDA #$00        ; Show the final score
         JSR USCORE      ; ,,
         JSR HSCORE      ; Calculate and show high score
-        LDA #$10        ; Slow the music down, so that it
+        LDA #$0F        ; Slow the music down, so that it
         STA TEMPO       ;   sounds more ominous. I love ominous!
         STA FADE        ; Fade out music
         JMP START       ; Back to waiting for fire button to
                         ;   start a new game
-        
-        
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; INTERRUPT SERVICE ROUTINE
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Custom ISR
 ; Play music, sound effects, and update frame countdown
-CSTISR: JSR NXNOTE
-        JSR NXFX
-ENDISR: DEC FRCD
-        JMP SYSISR        
+CSTISR: JSR NXNOTE      ; Play next note of musical theme
+        JSR NXFX        ; Play the sound effect
+ENDISR: DEC FRCD        ; Update frame countdown
+        JMP SYSISR      ; Back to the default ISR
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME PLAY SUBROUTINES
@@ -1768,13 +1767,13 @@ HSTXT:  .asc "  HI>",$00
 
 ; Instructional manual text
 MANTXT: .asc $0d,$0d,$0d
-        .asc "TRBO>$ YOUR MISSION IS",$0d
-        .asc "TO LEAD BABY TURTLES>!",$0d
-        .asc "TO SAFETY>",$5b,$0d,$0d
-        .asc "AVOID THE PATROLS>(",$0d,$0d
-        .asc "GEARS>. FIX DAMAGE",$0d,$0d
-        .asc "FIRE TO DIG COSTS .",$0d,$0d
-        .asc "TERMINALS>@ GIVE INTEL",$0d
+        .asc "$>TRBO YOUR MISSION IS",$0d
+        .asc "!>TO LEAD BABY TURTLES",$0d
+        .asc $5b,">TO SAFETY",$0d,$0d
+        .asc "(>AVOID THE PATROLS",$0d,$0d
+        .asc ".>GEARS FIX DAMAGE",$0d,$0d
+        .asc "  FIRE TO DIG FOR .",$0d,$0d
+        .asc "@>TERMINALS GIVE INTEL",$0d
         .asc "GOOD LUCK"
 
 ;   IMPORTANT! The first byte of the COLMAP below is $00, which
