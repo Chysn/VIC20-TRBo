@@ -2,27 +2,12 @@
 ;                     (c)2020, Jason Justian
 ;                   Release 1 - April 26, 2020
 ;
-; Permission is hereby granted, free of charge, to any person 
-; obtaining a copy of this software and associated documentation
-; files (the "Software"), to deal in the Software without
-; restriction, including without limitation the rights to use,
-; copy, modify, merge, publish, distribute, sublicense, and/or
-; sell copies of the Software, and to permit persons to whom the
-; Software is furnished to do so, subject to the following 
-; conditions:
+; This software is released under the Creative Commons
+; Attribution-NonCommercial 4.0 International
+; License. The license should be included with this file.
+; If not, please see: 
 ;
-; The above copyright notice and this permission notice shall be
-; included in all copies or substantial portions of the 
-; Software.
-;
-; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
-; KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
-; WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
-; PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR 
-; COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
-; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-; OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
-; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+; https://creativecommons.org/licenses/by-nc/4.0/legalcode.txt
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; BASIC LAUNCHER
@@ -72,8 +57,6 @@ MAXTUR = $0C            ; Maximum number of turtles per level
 SCRCOM = $08            ; Maze color
 TXTCOL = $01            ; Text color
 SPEED  = $0E            ; Game speed, in jiffies of delay
-CHRAM0 = $1C00          ; Custom Characters, Page 0
-CHRAM1 = $1D00          ; Custom Characters, Page 1
 
 ; These are constants used for direction blocking
 UP     = $10            ; Block - Up
@@ -130,10 +113,10 @@ FXCD   = $0350          ; Sound effects countdown
 FXCDRS = $0351          ; Countdown reset value
 
 ; Maze Builder
-FRCD   = $05            ; Frame countdown
 REMAIN = $0344          ; Remaining cells for the current level
 
 ; Game Play
+FRCD   = $05            ; Frame countdown
 GLEVEL = $0345          ; Game level
 SCORE  = $0346          ; \ Player score
 SCOR_H = $0347          ; /
@@ -150,9 +133,9 @@ LOSDIR = $0356          ; Line-of-sight direction
 TABIDX = $0357          ; Current patrol's real table index
 HISCOR = $0358          ; \ High score
 HISC_H = $0359          ; /
-PLAYER = $01            ; \ Player screen position (play)
+PLAYER = $01            ; \ Player screen position
 PLR_H  = $02            ; /
-CURSOR = $03            ; \ CURSOR direction
+CURSOR = $03            ; \ CURSOR position
 CUR_H  = $04            ; /
 
 ; Start of Patrol Table
