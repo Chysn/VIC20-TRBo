@@ -97,6 +97,8 @@ CH_TER = $2C            ; Location Terminal (comma)
 CH_WAL = $2D            ; Wall (minus)
 CH_HLT = $2E            ; Health (period)
 CH_FWA = $2F            ; False Wall (slash)
+CH_BWV = $1C            ; Broken Wall Vert (GBP)
+CH_BWH = $1D            ; Broken Wall Horiz (close bracket)
    
 ; Music Player                  
 THEME  = $033C          ; \ Music shift register theme
@@ -1102,7 +1104,12 @@ DO_DIG: LDY #$00
         LDA (CURSOR),Y
         CMP #CH_WAL     ; Can only dig walls
         BNE DIG_R
-        LDA #CH_SPC
+        LDX #CH_BWV     ; Dig with broken wall
+        LDA DIRBLK      ; Which direction did you dig?
+        AND #$50        ; Up or down?
+        BNE SH_DIG      ; If not, use the horiz wall
+        LDX #CH_BWH     ;   ..
+SH_DIG: TXA
         STA (CURSOR),Y
         LDA #FX_DIG     ; Launch the digging sound
         JSR SOUND       ; ,,
@@ -1764,19 +1771,18 @@ INTRO:  .asc "TRBO?>TURTLE>RESCUEBOT",$0d
         
 ENDTXT: .asc $0d,$0d,$0d,"   ' MISSION>OVER (",$00
 
-HSTXT:  .asc "  HI>",$00
+HSTXT:  .asc "    HI>",$00
 
 ; Instructional manual text
-MANTXT: .asc "WELCOME>",$0d,$0d
+MANTXT: .asc "WELCOME>>>",$0d,$0d,$0d
         .asc $9e,"$",$05,">TRBO YOUR MISSION IS",$0d
         .asc $1e,"!",$05,">TO LEAD BABY TURTLES",$0d
         .asc $9e,$5b,$05,">TO SAFETY",$0d,$0d
         .asc $9f,"(",$05,">AVOID THE PATROLS",$0d,$0d
         .asc $1f,".",$05,">GEARS FIX DAMAGE",$0d,$0d
         .asc "  FIRE TO DIG COSTS ",$1f,".",$05,$0d,$0d
-        .asc "@>TERMINALS GIVE INTEL",$0d
-        .asc "  GOOD LUCK",$0d,$0d,$0d
-        .asc "  FIRE TO START",$00
+        .asc "@>TERMINALS GIVE INTEL",$0d,$0d
+        .asc "  >>>GOOD LUCK",$00
 
 ; Partial color map for some characters indexed from SPACE ($20)
 COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
@@ -1846,8 +1852,8 @@ CHDATA: .byte $00,$00,$ff,$c3,$ff,$3c,$c3,$c3 ; SC Terminal
         .byte $82,$82,$82,$fe,$06,$06,$fe,$00 ; Y
         .byte $fe,$02,$0e,$38,$e0,$8e,$fe,$00 ; Z
         .byte $00,$18,$7e,$99,$7e,$18,$24,$42 ; SC Spaceship
-        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
-        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
+        .byte $83,$c0,$80,$c3,$21,$11,$c3,$00 ; Broken Wall V
+        .byte $ef,$c4,$08,$00,$02,$11,$dd,$00 ; Broken Wall H
         .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
         .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
         .byte $00,$00,$00,$00,$00,$00,$00,$00 ; Space
