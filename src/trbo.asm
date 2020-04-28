@@ -1520,8 +1520,6 @@ RESET:  PLA             ; Start restoring things for return
 ; Initialize Level
 INITLV: LDA #$00
         STA HUNTER      ; Reset Hunter flag
-        JSR USCORE      ; Display current score
-        JSR SHOWHL      ; Display current health
         LDA #$08        ; After level 8, the patrols will start
         CMP GLEVEL      ;   in Hunter mode, the music will be
         BCS INIT_C      ;   really fast, and the corridors
@@ -1569,6 +1567,8 @@ POPPAT: TAY             ; ,,
         AND #$07        ; Limit to 8 musical themes
         JSR MUSIC       ; Select the theme
         JSR M_PLAY      ; Start the music
+        JSR USCORE      ; Display current score
+        JSR SHOWHL      ; Display current health
         JSR EXPLOR      ; Explore the top level
 INIT_R: RTS 
 
