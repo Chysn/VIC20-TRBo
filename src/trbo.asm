@@ -1155,6 +1155,13 @@ HLT_R:  LDA #FX_HLT     ; Launch the bonus sound
         JSR USCORE
         RTS
         
+; Hunt
+; All patrols enter Hunter mode, which causes them to shoot
+; turtles on sight. Also, the music gets faster.
+HUNT:   LDA #$07
+        STA HUNTER
+        STA TEMPO
+        RTS
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MUSIC AND EFFECT PLAYER SUBROUTINES
@@ -1314,10 +1321,8 @@ FIBEAM: LDA #$0F        ; Discharge the beam
         SEC             ; ,,
         SBC GLEVEL      ; ,,
         STA PAT_BR,X  ; ,,
-        INC HUNTER      ; Activate Hunter mode
         INC FIRED       ; Fire happened
-        LDA #$07
-        STA TEMPO       ; Make the music faster
+        JSR HUNT        ; Turn on Hunter mode
         LDA #FX_FIR
         JSR SOUND       ; Launch the fire sound
         PLA             ; Firing in the direction the patrol
@@ -1518,16 +1523,19 @@ RESET:  PLA             ; Start restoring things for return
 ;;;; SETUP SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Initialize Level
-INITLV: LDA #$00
-        STA HUNTER      ; Reset Hunter flag
-        LDA #$08        ; After level 8, the patrols will start
-        CMP GLEVEL      ;   in Hunter mode, the music will be
-        BCS INIT_C      ;   really fast, and the corridors
-        LDA #$06        ;   will get cramped.
-        INC HUNTER      ;   ,,
+INITLV: JSR CLSR
+        LDA #$00
+        STA HUNTER
+        JSR USCORE      ; Display current score
+        JSR SHOWHL      ; Display current health
+        LDA GLEVEL      ; Starting at level 8, there are some
+        CMP #$08        ;   changes to increase the difficulty.
+        LDA #$08        ;   * The maze gets more cramped
+        BCC INIT_C      ;   * The patrols start in Hunter mode
+        LDA #$06        ;   ,,
+        JSR HUNT        ;   ,,
 INIT_C: STA CORLIM
         STA TEMPO
-        JSR CLSR
         JSR MAZE
         LDA #$5A        ; Position the player at the top
         STA PLAYER      ;   of the maze.
@@ -1536,16 +1544,19 @@ INIT_C: STA CORLIM
         JSR PLPLR       ; Place the player
         LDA #CH_SPC
         STA UNDER       ; Start with a space under player
+        LDA #$07        ; The location terminal is not used
+        CMP GLEVEL      ;   after level 9
+        BCC POPTUR
         LDY #$01        ; Populate the location terminal
         LDX #CH_TER     ; ,,
         JSR POPULA      ; ,,
-        LDA GLEVEL      ; Populate some turtles
+POPTUR: LDA GLEVEL      ; Populate some turtles
         ASL             ; ,,
         ADC #$02        ; ,,
         CMP #MAXTUR     ; ,, With a limit
-        BCC POPTUR      ; ,,
+        BCC PPT1        ; ,,
         LDA #$0C        ; ,,
-POPTUR: TAY             ; ,,
+PPT1:   TAY             ; ,,
         STY TURTLS      ; ,,
         LDX #CH_TUR     ; ,,
         JSR POPULA      ; ,,
@@ -1567,8 +1578,6 @@ POPPAT: TAY             ; ,,
         AND #$07        ; Limit to 8 musical themes
         JSR MUSIC       ; Select the theme
         JSR M_PLAY      ; Start the music
-        JSR USCORE      ; Display current score
-        JSR SHOWHL      ; Display current health
         JSR EXPLOR      ; Explore the top level
 INIT_R: RTS 
 
@@ -1623,28 +1632,17 @@ POPULA: TYA
         BNE RNDY        ;   terminal, its Y position is not
         LDY GLEVEL      ;   random, but based on the current
         INY             ;   level
-        CPY #$08
-        BCC PL1
-        LDY #$08
-        BCS PL1
+        BNE PL1         ;   ,,
 RNDY:   LDA #$08        ; Get a random Y-axis
         JSR RAND
-PL1:    LDA #$2C        ; Drop down that number of lines
-        CLC             ;   in the maze
-        ADC DATA_L
-        STA DATA_L
-        BCC RY
-        INC DATA_H
+PL1:    LDA #$2C        ; Drop down 2Y lines in the maze
+        JSR DATAAD
 RY:     DEY
         BPL PL1
         LDA #$0B        ; Get a random X-axis
         JSR RAND
-PL2:    LDA #$02        ; Move over that number of columns
-        CLC             ;   in the maze
-        ADC DATA_L
-        STA DATA_L
-        BCC RX
-        INC DATA_H
+PL2:    LDA #$02        ; Move over 2Y lines in the maze
+        JSR DATAAD
 RX:     DEY
         BPL PL2
         LDY #$00
@@ -1737,6 +1735,14 @@ PLR2C:  LDA PLAYER
         LDA PLR_H
         STA CUR_H 
         RTS
+        
+; Add the accumulator to DATA        
+DATAAD: CLC
+        ADC DATA_L
+        STA DATA_L
+        BCC DADD_R
+        INC DATA_H
+DADD_R: RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; UTILITY SUBROUTINES
@@ -1781,7 +1787,7 @@ WAIT_F: JSR READJS      ; Wait for the fire button
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME ASSET DATA AND TABLES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INTRO:  .asc "TRBO?>TURTLE>RESCUEBOT",$0d
+INTRO:  .asc "TRBO?>TURTLE>RESCUEBOT"
         .asc "   BY>JASON>JUSTIAN",$0d,$0d
         .asc "    FIRE>TO>START",$00
         
@@ -1790,15 +1796,19 @@ ENDTXT: .asc $0d,$0d,$0d,"   ' MISSION>OVER (",$00
 HSTXT:  .asc "?HI>",$00
 
 ; Instructional manual text
-MANTXT: .asc "HI>",$0d,$0d,$0d
+MANTXT: .asc "HI",$0d,$0d,$0d
         .asc "$>TRBO YOUR MISSION IS",$0d
         .asc "!>TO LEAD BABY TURTLES",$0d
         .asc $5b,">TO SAFETY",$0d,$0d
         .asc "(>AVOID THE PATROLS",$0d,$0d
         .asc ".>GEARS FIX DAMAGE",$0d,$0d
         .asc "  FIRE TO DIG COSTS .",$0d,$0d
-        .asc "@>TERMINALS GIVE INTEL",$0d,$0d
+        .asc "@>TERMINALS GIVE IN",$0d,$0d
         .asc "  >AGENT ANZU"
+        
+; NOTE that the first byte in the COLMAP has a double use as the
+; last byte of MANTXT! This is intentional. Watch out for this
+; if you make any changes.        
 
 ; Partial color map for some characters indexed from SPACE ($20)
 COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
