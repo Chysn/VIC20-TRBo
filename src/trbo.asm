@@ -968,8 +968,7 @@ SCDRAW: JSR HOME
         INX
         LDA #$00
         JSR PRTFIX
-        LDA #CH_SPC
-        JSR CHROUT
+        LDA #">"        ; For the underline
         JSR CHROUT
         LDX SCORE
         LDA SCOR_H
@@ -993,9 +992,9 @@ NEWHS:  LDA SCORE       ; A new high score has been
 HSDRAW: LDA #<HSTXT     ; Show the high score text
         LDY #>HSTXT     ; ,,
         JSR PRTSTR      ; ,,
-        LDX HISCOR
-        LDA HISC_H
-        JSR PRTFIX
+        LDX HISCOR      ; Show the high score number
+        LDA HISC_H      ;
+        JSR PRTFIX      ;
         RTS
 
 ; Show Health Status        
@@ -1046,19 +1045,19 @@ REV_UD: JSR CUR_RV      ; Show the current CURSOR
 ; Reveal the Board
 ; Usally a benefit of activating the terminal
 REVEAL: LDX #$00
-RL0:    TXA             ; Set up two character color calls,,
+RL0:    TXA 
         CMP #$6D
         BCC RP1         ; Ignore the top part of the screen
         PHA
         LDY #>SCREEN
         SEC
-        JSR CHRCOL      ; One for the first page of screen,
+        JSR CHRCOL
         PLA
 RP1:    PHA
         TXA
         LDY #>SCREEN+$0100
         SEC
-        JSR CHRCOL      ; and one for the other
+        JSR CHRCOL
         PLA
         TAX
         INX
