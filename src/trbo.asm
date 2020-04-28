@@ -23,11 +23,11 @@ BASIC:  .byte $0b,$04,$01,$00,$9e,$34,$31,$31
 ;;;; LABEL DEFINITIONS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; System Resources
-ISR    = $0314          ; ISR vector
-NMI    = $0318          ; NMI vector
+CINV   = $0314          ; ISR vector
+NMINV  = $0318          ; NMI vector
 SCREEN = $1E00          ; Screen character memory (unexpanded)
 COLOR  = $9600          ; Screen color memory (unexpanded)
-SYSISR = $EABF          ; System ISR   
+IRQ    = $EABF          ; System ISR   
 VICCR5 = $9005          ; Character map register
 VOICEH = $900C          ; High sound register
 VOICEM = $900B          ; Mid sound register
@@ -50,27 +50,29 @@ PRTFIX = $DDCD          ; Decimal display routine
 CHROUT = $FFD2          ; Output one character
 TIMER  = $A2            ; Jiffy counter low
 
-; Constants
+; Constants - Game Configuration
 ST_HLT = $08            ; Initial health level per game
 MAXPAT = $06            ; Maximum number of patrols per level
 MAXTUR = $0C            ; Maximum number of turtles per level
+SPEED  = $0E            ; Game speed, in jiffies of delay
 SCRCOM = $08            ; Maze color
 TXTCOL = $01            ; Text color
-SPEED  = $0E            ; Game speed, in jiffies of delay
 
-; These are constants used for direction blocking
+; Constants - Direction Blocking
 UP     = $10            ; Block - Up
 RIGHT  = $20            ; Block - Right
 DOWN   = $40            ; Block - Down
 LEFT   = $80            ; Block - Left
 
-; These contants are point values
+; Constants - Point Values
 PT_RES = $64            ; Rescuing a turtle 100 pts
 PT_TER = $FA            ; Finding Terminal  250 pts
 PT_BON = $32            ; Bonus Health       50 pts
 PT_HLT = $19            ; Found Health       25 pts
 
 ; Sound Effects Library
+; The number is the index to effects parameters in the
+; FXTYPE table
 FX_STA = $00            ; Start the game
 FX_FIR = $01            ; Beam sound
 FX_RES = $02            ; Rescue sound
@@ -81,6 +83,7 @@ FX_BON = $06            ; Bonus points!
 FX_HLT = $07            ; Found health
 
 ; Characters
+; Screen codes for custom characters
 CH_SPC = $20            ; Space
 CH_TUR = $21            ; Turtle Right (exclamation)
 CH_TUL = $22            ; Turtle Left (double quote)
@@ -100,7 +103,7 @@ CH_FWA = $2F            ; False Wall (slash)
 CH_BWV = $1C            ; Broken Wall Vert (GBP)
 CH_BWH = $1D            ; Broken Wall Horiz (close bracket)
    
-; Music Player                  
+; Music Player Memory                 
 THEME  = $033C          ; \ Music shift register theme
 THM_H  = $033D          ; /
 TEMPO  = $033E          ; Tempo (lower numbers are faster)
@@ -108,16 +111,17 @@ MUCD   = $033F          ; Tempo countdown
 PLAY   = $0340          ; Music is playing
 FADE   = $0341          ; Fadeout volume
 
-; Sound Effects Player
+; Sound Effects Player Memory
 REG_FX = $034E          ; Sound effects register
 FXLEN  = $034F          ; Sound effects length
 FXCD   = $0350          ; Sound effects countdown
 FXCDRS = $0351          ; Countdown reset value
 
-; Maze Builder
+; Maze Builder Memory
 REMAIN = $0344          ; Remaining cells for the current level
+CORLIM = $FD            ; Corridor Limit, set per level
 
-; Game Play
+; Game Play Memory
 FRCD   = $05            ; Frame countdown
 GLEVEL = $0345          ; Game level
 SCORE  = $0346          ; \ Player score
@@ -171,10 +175,12 @@ INIT:   JSR SETHW       ; Set up hardware features
 ; Welcome Screen
 WELCOM: JSR CLSR        ; Clear screen
         JSR M_STOP      ; Stop music player, in case of RESTORE
-        JSR MAZE        ; Draw Maze
         LDA #<INTRO     ; Show the intro screen
         LDY #>INTRO     ; ,,
         JSR PRTSTR      ; ,,
+        LDA #$06        ; Set corridor limit for the maze
+        STA CORLIM      ; ,,
+        JSR MAZE        ; Draw Maze
         LDY #$05        ; Populate some turtles
         LDX #CH_TUR     ; ,,
         JSR POPULA      ; ,,
@@ -185,7 +191,6 @@ WELCOM: JSR CLSR        ; Clear screen
         LDX #CH_PLR     ; ,,
         JSR POPULA      ; ,,
         JSR REVEAL      ; Reveal the board
-        JSR SPSHIP      ; Draw the spaceship
         JSR WAIT        ; Wait for the fire button
 
 ; Initialize score and game locations
@@ -204,6 +209,8 @@ START:  JSR WAIT        ; Wait for the fire button again
         JSR SOUND       ; * Launch the game start sound
         LDA #ST_HLT     ; Initialize health
         STA HEALTH      ; ,,
+        LDA #$08        ; The initial corridor limit
+        STA CORLIM      ; ,,
 
 ; Start a new level
 STLEV:  JSR INITLV
@@ -299,7 +306,7 @@ BLUE:   STA COLOR,Y     ;   looks more ominous
 CSTISR: JSR NXNOTE      ; Play next note of musical theme
         JSR NXFX        ; Play the sound effect
 ENDISR: DEC FRCD        ; Update frame countdown
-        JMP SYSISR      ; Back to the default ISR
+        JMP IRQ         ; Back to the default ISR
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; GAME PLAY SUBROUTINES
@@ -1284,6 +1291,8 @@ LOS_CH: LDY #$00
         LDA (CURSOR),Y  ; A is now the next cell
         CMP #CH_WAL     ; Is it a wall?
         BEQ LOS_R       ;   No line-of-sight found
+        CMP #CH_FWA     ; Is it a false wall?
+        BEQ LOS_R       ;   No line-of-sight found
         CMP #$3D        ; Right corner of ship?
         BEQ LOS_R       ;   No line-of-sight found
         JSR IS_PAT      ; Is it a patrol?
@@ -1355,6 +1364,11 @@ DAMAGE: LDA HEALTH
         JSR SHOWHL      ; Show health
         LDA FX_DMG
         JSR SOUND
+        LDA #$01        ; If health gets to 1, change
+        CMP HEALTH      ;   the theme to an alarm tone
+        BNE DAMA_R      ;   ,,
+        LDA #$08        ;   ,,
+        JSR MUSIC       ;   ,,
 DAMA_R: RTS
 
 ; Place Player        
@@ -1405,6 +1419,7 @@ LEVEL:  TXA
         INX
         CPX #$09
         BNE LEVEL
+        JSR SPSHIP
         RTS
         
 ; Draw Level
@@ -1425,7 +1440,10 @@ F_COR:  LDA #$0A        ; Initialize the current level
 NX_COR: STA REMAIN      ; Start a new corridor
         CPX #$00        ; Level 0 is a special case; it always
         BEQ DRAW        ;   has a single full-length corridor
-        JSR RAND        ; Y = Length of the next corridor
+        CMP CORLIM      ; Limit the size of a single corridor
+        BCC G_LEN       ; ,,
+        LDA CORLIM      ; ,,
+G_LEN:  JSR RAND        ; Y = Length of the next corridor
 DRAW:   JSR DRCORR      ; Draw the corridor
         STY SCRPAD      ; Update remaining cells by
         LDA REMAIN      ;   subtracting the size of the
@@ -1500,10 +1518,19 @@ RESET:  PLA             ; Start restoring things for return
 ;;;; SETUP SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Initialize Level
-INITLV: JSR CLSR
-        JSR M_STOP
+INITLV: LDA #$00
+        STA HUNTER      ; Reset Hunter flag
+        JSR USCORE      ; Display current score
+        JSR SHOWHL      ; Display current health
+        LDA #$08        ; After level 8, the patrols will start
+        CMP GLEVEL      ;   in Hunter mode, the music will be
+        BCS INIT_C      ;   really fast, and the corridors
+        LDA #$06        ;   will get cramped.
+        INC HUNTER      ;   ,,
+INIT_C: STA CORLIM
+        STA TEMPO
+        JSR CLSR
         JSR MAZE
-        JSR SPSHIP
         LDA #$5A        ; Position the player at the top
         STA PLAYER      ;   of the maze.
         LDY #>SCREEN
@@ -1537,23 +1564,12 @@ POPPAT: TAY             ; ,,
         LDX #CH_HLT     ; Populate a couple health boosts
         LDY #$02        ; ,,
         JSR POPULA      ; ,,
-        LDA #$08        ; Set the music tempo
-        STA TEMPO       ; ,,
         STA MUCD        ; ,,
-        LDA GLEVEL
+        LDA GLEVEL      ; Get level number for theme selection
         AND #$07        ; Limit to 8 musical themes
         JSR MUSIC       ; Select the theme
-        LDA #$00
-        STA HUNTER      ; Reset Hunter flag
-        JSR USCORE      ; Display current score
-        JSR SHOWHL      ; Display current health
         JSR M_PLAY      ; Start the music
         JSR EXPLOR      ; Explore the top level
-        LDA GLEVEL      ; After so many levels, start
-        CMP #$09        ;   all patrols in Hunter mode
-        BCC INIT_R      ;   to raise the difficulty
-        INC HUNTER
-        DEC TEMPO       ; And also make the music faster
 INIT_R: RTS 
 
 ; Setup Hardware
@@ -1578,13 +1594,13 @@ SETHW:  LDA #SCRCOM     ; Set background color
         STA TCOLOR      ;   intro, game over, score, etc.
         SEI             ; Install the custom ISR
         LDA #<CSTISR    ; ,,
-        STA ISR         ; ,,
+        STA CINV        ; ,,
         LDA #>CSTISR    ; ,,
-        STA ISR+1       ; ,,
+        STA CINV+1      ; ,,
         LDA #<WELCOM    ; Install the custom NMI (restart)
-        STA NMI         ; ,, 
+        STA NMINV       ; ,, 
         LDA #>WELCOM    ; ,,
-        STA NMI+1       ; ,,
+        STA NMINV+1     ; ,,
         LDA #SPEED      ; Initialize frame countdown before
         STA FRCD        ;   ISR is started
         CLI
@@ -1726,7 +1742,7 @@ PLR2C:  LDA PLAYER
 ;;;; UTILITY SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Random Number
-; Gets a random number between 1 and 16. A contains the
+; Gets a random number between 1 and 8. A contains the
 ; maximum value. The random number will be in Y.
 RAND:   STA SCRPAD
         DEC SCRPAD      ; Behind the scenes, look for a number
@@ -1734,7 +1750,7 @@ RAND:   STA SCRPAD
                         ;   below, which compensates
         JSR BASRND
         LDA RNDNUM
-        AND #$0F
+        AND #$07
         CMP SCRPAD
         BCC E_RAND      ; Get another random number if this one
         BEQ E_RAND      ; is greater than the maximum
@@ -1771,18 +1787,18 @@ INTRO:  .asc "TRBO?>TURTLE>RESCUEBOT",$0d
         
 ENDTXT: .asc $0d,$0d,$0d,"   ' MISSION>OVER (",$00
 
-HSTXT:  .asc "    HI>",$00
+HSTXT:  .asc "?HI>",$00
 
 ; Instructional manual text
-MANTXT: .asc "WELCOME>>>",$0d,$0d,$0d
-        .asc $9e,"$",$05,">TRBO YOUR MISSION IS",$0d
-        .asc $1e,"!",$05,">TO LEAD BABY TURTLES",$0d
-        .asc $9e,$5b,$05,">TO SAFETY",$0d,$0d
-        .asc $9f,"(",$05,">AVOID THE PATROLS",$0d,$0d
-        .asc $1f,".",$05,">GEARS FIX DAMAGE",$0d,$0d
-        .asc "  FIRE TO DIG COSTS ",$1f,".",$05,$0d,$0d
+MANTXT: .asc "HI>",$0d,$0d,$0d
+        .asc "$>TRBO YOUR MISSION IS",$0d
+        .asc "!>TO LEAD BABY TURTLES",$0d
+        .asc $5b,">TO SAFETY",$0d,$0d
+        .asc "(>AVOID THE PATROLS",$0d,$0d
+        .asc ".>GEARS FIX DAMAGE",$0d,$0d
+        .asc "  FIRE TO DIG COSTS .",$0d,$0d
         .asc "@>TERMINALS GIVE INTEL",$0d,$0d
-        .asc "  >>>GOOD LUCK",$00
+        .asc "  >AGENT ANZU"
 
 ; Partial color map for some characters indexed from SPACE ($20)
 COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
@@ -1794,12 +1810,13 @@ SHOFF:  .byte $59,$58,$42,$43
 ; Curated musical themes for the shift register player.  
 THEMES: .word $5412
         .word $2ab3
-        .word $2fff
+        .word $1113
         .word $4214
-        .word $1331
         .word $6446
         .word $c633
         .word $2919
+        .word $2fff
+        .word $3333     ; Low health alarm tone
 
 ; Sound effects for the sound effects player
 ; Each effect has three parameters
