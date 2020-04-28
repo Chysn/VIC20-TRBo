@@ -121,14 +121,14 @@ GLEVEL = $0345          ; Game level
 SCORE  = $0346          ; \ Player score
 SCOR_H = $0347          ; /
 UNDER  = $0348          ; Character underneath player
-JOYDIR = $0349          ; Joystick direction capture
-DIRBLK = $034A          ; Block direction (UP,RIGHT, RIGHT)
-TURTLS = $034B          ; Turtle count for the level
-PATRLS = $034C          ; Patrol count for the level
+JOYDIR = $F9            ; Joystick direction capture
+DIRBLK = $FA            ; Block direction (UP,RIGHT, RIGHT)
+TURTLS = $FB            ; Turtle count for the level
+PATRLS = $FC            ; Patrol count for the level
 HUNTER = $0352          ; Hunters will attack turtles
 FIRED  = $0353          ; Any patrol fired this round
 DIDFIR = $0354          ; Current patrol fired this round
-HEALTH = $0355          ; Player health
+HEALTH = $FD            ; Player health
 LOSDIR = $0356          ; Line-of-sight direction
 TABIDX = $0357          ; Current patrol's real table index
 HISCOR = $0358          ; \ High score
@@ -191,7 +191,8 @@ MANUAL: JSR CLSR
         LDA #<MANTXT    ; Show the game manual
         LDY #>MANTXT    ; ,,
         JSR PRTSTR      ; ,,
-        
+
+; Start a new game        
 START:  JSR WAIT        ; Wait for the fire button again
         LDA #$00        ; Initialize to zero
         STA GLEVEL      ; * The level
@@ -1376,10 +1377,12 @@ L1:     LDA #CH_WAL
         LDA #>SCREEN    ;   left-hand side of the playing field
         STA CUR_H       ;   that uses the same graphic as a wall,
         LDX #$12        ;   but is not a wall. Its purpose is to
-        LDY #$00        ;   prevent the player from digging from
-FWAL:   JSR MCUR_D      ;   one side of the board to the other,
+FWAL:   LDY #$00        ;   prevent the player from digging from
+        JSR MCUR_D      ;   one side of the board to the other,
         LDA #CH_FWA     ;   which is something that should be
         STA (CURSOR),Y  ;   physically impossible.
+        INY             ;   ,,
+        STA (CURSOR),Y  ;   ,,
         DEX             ;   ,,
         BNE FWAL        ;   ,,
         LDA #$5A        ; Offset for the maze
@@ -1737,10 +1740,8 @@ E_RAND: TAY
         
 ; Delay
 ; Waits the number of jiffies specified in A
-DELAY:  PHA             ; Doing this because I want to affect
-        LDA #$00        ;   only A in this routine
-        STA TIMER
-        PLA
+DELAY:  LDY #$00
+        STY TIMER
 DWAIT:  CMP TIMER
         BNE DWAIT
         RTS
@@ -1766,19 +1767,16 @@ ENDTXT: .asc $0d,$0d,$0d,"   ' MISSION>OVER (",$00
 HSTXT:  .asc "  HI>",$00
 
 ; Instructional manual text
-MANTXT: .asc $0d,$0d,$0d
-        .asc "$>TRBO YOUR MISSION IS",$0d
-        .asc "!>TO LEAD BABY TURTLES",$0d
-        .asc $5b,">TO SAFETY",$0d,$0d
-        .asc "(>AVOID THE PATROLS",$0d,$0d
-        .asc ".>GEARS FIX DAMAGE",$0d,$0d
-        .asc "  FIRE TO DIG FOR .",$0d,$0d
+MANTXT: .asc "WELCOME>",$0d,$0d
+        .asc $9e,"$",$05,">TRBO YOUR MISSION IS",$0d
+        .asc $1e,"!",$05,">TO LEAD BABY TURTLES",$0d
+        .asc $9e,$5b,$05,">TO SAFETY",$0d,$0d
+        .asc $9f,"(",$05,">AVOID THE PATROLS",$0d,$0d
+        .asc $1f,".",$05,">GEARS FIX DAMAGE",$0d,$0d
+        .asc "  FIRE TO DIG COSTS ",$1f,".",$05,$0d,$0d
         .asc "@>TERMINALS GIVE INTEL",$0d
-        .asc "GOOD LUCK"
-
-;   IMPORTANT! The first byte of the COLMAP below is $00, which
-;   serves double-duty as the end of MANTXT. Things might get
-;   funky if this is changed, unless you consider this.
+        .asc "  GOOD LUCK",$0d,$0d,$0d
+        .asc "  FIRE TO START",$00
 
 ; Partial color map for some characters indexed from SPACE ($20)
 COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
@@ -1867,7 +1865,7 @@ CHDATA: .byte $00,$00,$ff,$c3,$ff,$3c,$c3,$c3 ; SC Terminal
         .byte $00,$00,$aa,$be,$aa,$28,$82,$82 ; MC Terminal
         .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
         .byte $10,$54,$38,$c6,$38,$54,$10,$00 ; Health
-        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; False Wall
+        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; f
         .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
         .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
         .byte $7f,$03,$03,$7f,$40,$40,$7f,$00 ; 2
