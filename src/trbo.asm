@@ -1,7 +1,15 @@
-;                     TRBo: Turtle RescueBot
-;                     (c)2020, Jason Justian
-;                   Release 1 - April 26, 2020
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;
+;                    TRBo: Turtle RescueBot
+;                    (c)2020, Jason Justian
+;                  Release 1 - April 26, 2020
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; LICENSE
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; This software is released under the Creative Commons
 ; Attribution-NonCommercial 4.0 International
 ; License. The license should be included with this file.
