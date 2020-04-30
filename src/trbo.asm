@@ -24,10 +24,12 @@ BASIC:  .byte $0b,$04,$01,$00,$9e,$34,$31,$31
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; System Resources
 CINV   = $0314          ; ISR vector
-NMINV  = $0318          ; NMI vector
+NMINV  = $FFFE          ; NMI vector
 SCREEN = $1E00          ; Screen character memory (unexpanded)
 COLOR  = $9600          ; Screen color memory (unexpanded)
 IRQ    = $EABF          ; System ISR   
+BASRND = $E094          ; Routine for BASIC's RND() function
+RNDNUM = $8C            ; Result storage location for RND()
 VICCR5 = $9005          ; Character map register
 VOICEH = $900C          ; High sound register
 VOICEM = $900B          ; Mid sound register
@@ -35,8 +37,6 @@ VOICEL = $900A          ; Low sound register (unused)
 NOISE  = $900D          ; Noise register
 VOLUME = $900E          ; Sound volume register/aux color
 BACKGD = $900F          ; Background color
-BASRND = $E094          ; Routine for BASIC's RND() function
-RNDNUM = $8C            ; Result storage location for RND()
 VIA1DD = $9113          ; Data direction register for joystick
 VIA1PA = $9111          ; Joystick port (up, down, left, fire)
 VIA2DD = $9122          ; Data direction register for joystick
@@ -48,12 +48,14 @@ PRTSTR = $CB1E          ; Print from data (Y,A)
 CASECT = $0291          ; Disable Commodore case
 PRTFIX = $DDCD          ; Decimal display routine
 CHROUT = $FFD2          ; Output one character
-TIMER  = $A2            ; Jiffy counter low
+TIME_L  = $A2           ; Jiffy counter low
+TIME_M  = $A1           ; Jiffy counter middle
 
 ; Constants - Game Configuration
 ST_HLT = $08            ; Initial health level per game
 MAXPAT = $06            ; Maximum number of patrols per level
 MAXTUR = $0C            ; Maximum number of turtles per level
+CORLIM = $08            ; Maximum corridor size
 SPEED  = $0E            ; Game speed, in jiffies of delay
 SCRCOM = $08            ; Maze color
 TXTCOL = $01            ; Text color
@@ -119,7 +121,6 @@ FXCDRS = $0351          ; Countdown reset value
 
 ; Maze Builder Memory
 REMAIN = $0344          ; Remaining cells for the current level
-CORLIM = $FD            ; Corridor Limit, set per level
 
 ; Game Play Memory
 FRCD   = $05            ; Frame countdown
@@ -155,7 +156,7 @@ PAT_DI = PATTAB+3       ; Direction (UP, RIGHT, DOWN, LEFT)
 PAT_TR = PATTAB+4       ; Vertical travel (UP, DOWN)
 PAT_UN = PATTAB+5       ; Character under (CH_SPC, CH_LAD)
 PAT_BF = PATTAB+6       ; Bump flag
-PAT_LL = PATTAB+7       ; Ladder exit location low byte
+PAT_CP = PATTAB+7       ; Ladder checkpoint
 
 ; General use registers - Any function may use these, but no
 ; function may assume that they're safe from other functions
@@ -178,8 +179,6 @@ WELCOM: JSR CLSR        ; Clear screen
         LDA #<INTRO     ; Show the intro screen
         LDY #>INTRO     ; ,,
         JSR PRTSTR      ; ,,
-        LDA #$06        ; Set corridor limit for the maze
-        STA CORLIM      ; ,,
         JSR MAZE        ; Draw Maze
         LDY #$05        ; Populate some turtles
         LDX #CH_TUR     ; ,,
@@ -209,8 +208,6 @@ START:  JSR WAIT        ; Wait for the fire button again
         JSR SOUND       ; * Launch the game start sound
         LDA #ST_HLT     ; Initialize health
         STA HEALTH      ; ,,
-        LDA #$08        ; The initial corridor limit
-        STA CORLIM      ; ,,
 
 ; Start a new level
 STLEV:  JSR INITLV
@@ -442,16 +439,7 @@ NPC_MV: LDA SCREEN+$5A  ; First, look for a turtle near the
         STA DIRBLK
         JSR TURCHN
 MVPATS: LDX PATRLS      ; Move each patrol
-FORPAT: LDA #$01        ; The first patrol is an express to the
-        STA PAT_BF      ;   top! It never requires a bump to go
-        STA PAT_TR      ;   up, and it never leaves the surface
-                        ;   once it gets there. This increases
-                        ;   the chance of the surface being
-                        ;   defended, so the player usually
-                        ;   has that puzzle to solve.
-        STA PAT_BF+$20  ; The fifth patrol's bump flag is always
-                        ;   on
-        DEX             ; Patrols are zero-indexed
+FORPAT: DEX             ; Patrols are zero-indexed
         JSR PAT_AI      ; Call patrol AI routine
         CPX #$00
         BNE FORPAT
@@ -552,31 +540,9 @@ PL_SL : LDA CURSOR      ; Place the space or ladder
 CHN_R:  RTS
         
 ; Patrol AI
-; The patrol movement works like this:
-;  I)    If the player is in the patrol's line of sight,
-;        and the beam is recharged, then fire. If the patrol
-;        fired the beam, then END
-;  (ref. AI_I)
+; Fire if the player is in the line of sight. If the patrol did
+; not fire, then determine a new position and direction.
 ;
-;  II)   If the patrol is on a ladder (going up or down)
-;        (A) If the patrol can leave the ladder
-;            Set a direction, clear the Bump flag, and 
-;            the Ladder flag. END
-;        (B) If the patrol cannot leave the ladder, check
-;            the Travel direction. Check that direction.
-;            (1) If that direction is open, MOVE there
-;            (2) Otherwise, END
-;  (ref. AI_II)
-;
-;  III)  If the patrol is not on a ladder (going right or left)
-;        (A) If the Travel direction is open
-;            (1) If the Bump flag is set, set direction to
-;                travel direction and MOVE that way
-;        (B) If the moving direction is open, MOVE that way
-;        (C) If the moving direction is not open, reverse
-;            the direction and set the Bump flag. END
-;  ref. (AI_III)
-;  
 ; Preparations
 ;     X is the patrol index
 PAT_AI: TXA
@@ -603,9 +569,8 @@ AI_II:  LDX TABIDX
         JMP PAT_DR      ; Draw the patrol
 AI_III: JSR OFFLAD      ; Do the Off Ladder routine
 PAT_DR: LDY #CH_PAC     ; Determine the character based
-        LDX TABIDX      ;   on the new direction
-        LDA PAT_DI,X    ;
-        AND #$50        ; Is the direction up or down?
+        LDA PAT_DI,X    ;   on the new direction
+        AND #$50        ; Is the direction up/down?
         BNE GOTCHR      ; If so, climbing is already in Y
         LDY #CH_PAL
         LDA PAT_DI,X
@@ -641,133 +606,135 @@ AI_R:   LDA TABIDX      ; Restore X from Real Table Index back
         TAX             ;   ,,
         RTS  
 
-; Patrol On Ladder        
-ONLAD:  JSR MCUR_L
-        JSR OPEN2P      ; Is there a left corridor?
-        BEQ GOOFF
-CL_R:   JSR RS_CUR
-        JSR MCUR_R
-        JSR OPEN2P      ; Is there a right corridor?
-        BNE CL_U
-GOOFF:  JSR RS_CUR
-        JSR MVOFFL
-        RTS
-CL_U:   JSR RS_CUR
-        LDA PAT_DI,X    ; Is the patrol on its way up?
-        CMP #UP     
-        BNE CL_D
-        JSR MCUR_U
-        JSR OPEN2P      ; Is up open?
-        BNE ON_CR
-        LDA CUR_H       ; If the patrol tries to move beyond
-        CMP #>SCREEN    ;   the top level, do nothing. If
-        BNE ON_R        ;   it gets TO the top level, then
-        LDA CURSOR      ;   switch its direction to Down
-        CMP #$58        ;   ,,
-        BCC ON_CR       ;   ,,
-        CMP #$6E        ;   ,,
-        BCS ON_R        ;   ,,
-        LDA #DOWN       ;   ,,
-        STA PAT_TR,X    ;   ,,
-        BNE ON_R
-CL_D:   JSR RS_CUR
-        JSR MCUR_D      ; No need to check stuff here, because        
-                        ;   it's the only option left
-        JSR OPEN2P
-        BNE STUCK
-        BEQ ON_R
-STUCK:  LDA #UP         ; Set the travel direction to Up to
-        STA PAT_TR,X    ;   avoid getting the hell stuck
-        STA PAT_DI,X    ;   ,,
-ON_CR:  JSR RS_CUR
-ON_R:   RTS
+; On Ladder Movement
+; Includes conditions for getting off the ladder
+;
+; X is the real table index
+ONLAD:  LDA PAT_DI,X    ; Split off the Down travel case and
+        CMP #DOWN       ;   the Up travel case
+        BEQ ONDOWN
+ONUP:   JSR MCUR_U      ; Move CURSOR upward and check
+        JSR UPOPEN      ;   for availability
+        BNE UP_LK
+        RTS             ; Up is available, so return to draw
+UP_LK:  JSR LOOKLR      ; No upward movement, so check the sides
+        BCC STUCK       ; Sides not available, so stuck
+        JSR MVOFFL      ; Side is available, so move off the
+        JMP OFFLAD      ;   ladder
+ONDOWN: JSR LOOKLR      ; When moving down, search sides first
+        BCC CH_DN       ;   ,,
+        JSR MVOFFL      ; Left or right are available, so move
+        JMP OFFLAD      ;   off the ladder
+CH_DN:  JSR RS_CUR      ; Can't move left or right, so try down
+        JSR MCUR_D      ;   ,,
+        JSR OPEN2P      ; If down is open, then return to draw;
+        BNE STUCK       ;   otherwise, patrol is stuck
+        RTS             ;   ,,
+STUCK:  JSR RS_CUR      ; The patrol is vertically stuck
+        JSR REV_TR      ; Reverse travel
+        RTS             ; But end without moving
 
-; Patrol Off Ladder
-OFFLAD: LDA PAT_TR,X    ; If the travel direction is Down, see
-        CMP #DOWN       ;   if the patrol came off the ladder
-        BNE CO_CHK      ;   at this location. If this is the
-        LDA DATA_L      ;   case, give the patrol a chance
-        CMP PAT_LL,X    ;   of changing its direction of
-        BNE CO_CHK      ;   travel. This helps the patrol to
-                        ;   avoid getting stuck in a room.
-        LDY #$30        ; If the patrol is on the top half of
-        LDA PATL_H,X    ;   the screen, we want to keep the
-        CMP #<SCREEN    ;   probability of changing travel to Up
-        BEQ CHPROB      ;   low. In the bottom half, it's better
-        LDY #$B0        ;   to start heading back upward.
-CHPROB: CPY TIMER       ; Check the probability against the
-        BCS CO_CHK      ;   jiffy clock
-        LDA #UP         ; Set the travel direction to Up
-        STA PAT_TR,X    ; ,,
-CO_CHK: LDA PAT_BF,X    ; If the Bump flag is unset, then don't
-        BEQ CO_R        ;   check any vertical directions yet
-        LDA PAT_TR,X    ; Is the Travel direction Down?
-        CMP #DOWN
-        BNE CO_U        ; No, then check Up
-        JSR MCUR_D
-        JSR OPEN2P      ; Can the patrol move down?
-        BNE CO_R        ; If not open, then move left or right
-        LDA #DOWN       ; Move onto the ladder going down
-        STA PAT_DI,X    ; ,,
+; Look Left and Right
+; Carry flag is set if either direction is open
+LOOKLR: JSR RS_CUR      ; Reset CURSOR
+        JSR MCUR_R      ; Can patrol move right?
+        JSR OPEN2P      ;   ,,
+        BEQ L_YES       ;   ,,
+        JSR RS_CUR      ; Or left?
+        JSR MCUR_L      ;   ,,
+        JSR OPEN2P      ;   ,,
+        BNE L_NO        ;   ,,
+L_YES:  SEC             ; Set or
         RTS
-CO_U:   JSR RS_CUR
-        JSR MCUR_U
-        LDY #$00
-        LDA (CURSOR),Y
-        CMP #CH_LAD     ; Checking specifically for a ladder, so
-        BNE CO_R        ;   patrol doesn't climb off the screen
-        LDA #UP         ; Move onto the ladder going up
-        STA PAT_DI,X    ; ,,
+L_NO:   CLC             ; Clear carry flag
         RTS
-CO_R:   JSR RS_CUR
-        LDA PAT_DI,X    ; Is the patrol moving right?
+
+; Off-Ladder Movement
+; Includes conditions for getting onto a ladder
+; 
+; X is the real table index
+OFFLAD: LDA PAT_BF,X    ; If the Bump flag is set, then consider
+        BEQ OFF_R       ;   the travel direction first
+CHKPT:  LDA PAT_CP,X    ; Has the patrol reached its checkpoint?
+        CMP CURSOR      ;    ,,
+        BNE OFF_D       ;    ,,
+        JSR FIFTY       ; If at the checkpoint, 50% of the time
+        BCC OFF_D       ;   the patrol will reverse its travel
+        JSR REV_TR      ;   and continue with the On Ladder
+        JMP ONLAD       ;   routine
+OFF_D:  LDA PAT_TR,X    ; The direction of travel is down
+        CMP #DOWN       ;   ,,
+        BNE OFF_U
+        JSR MCUR_D      ; If the patrol can move down from
+        JSR OPEN2P      ;   here, then do it. Change direction
+        BNE OFF_R       ;   and return for draw
+        LDA #DOWN       ;   ,,
+        STA PAT_DI,X    ;   ,,
+        RTS             ;   ,,
+OFF_U:  JSR MCUR_U      ; If the patrol can move up from
+        JSR UPOPEN      ;   here, then do it.
+        BNE OFF_R       ;   ,,
+        LDA #UP         ;   ,,
+        STA PAT_DI,X    ;   ,,
+        RTS             ;   ,,
+OFF_R:  JSR RS_CUR
+        LDA PAT_DI,X
         CMP #RIGHT
-        BNE CO_L
-        JSR MCUR_R
-        JSR OPEN2P      ; Can the patrol move right?
-        BNE BUMP        ; Can't move this round
-        RTS             ; Return to draw routine
-CO_L:   JSR RS_CUR      ; No need to check direction flag here
-        JSR MCUR_L
-        JSR OPEN2P      ; Can the patrol move left?
-        BNE BUMP
-        RTS        
+        BNE OFF_L
+        JSR MCUR_R      ; If the patrol can move right
+        JSR OPEN2P      ;   from here, then do it
+        BNE BUMP        ;   ,,
+        RTS             ;   ,,
+OFF_L:  JSR MCUR_L      ; No need to check direction here
+        JSR OPEN2P      ;   If it's open, then move and draw
+        BNE BUMP        ; Otherwise, bump
+        RTS
 BUMP:   JSR RS_CUR      ; Cannot move; restore the CURSOR
-        LDA #$01        ; Set the Bump flag
-        STA PAT_BF,X    ; ,,
+        INC PAT_BF,X    ; Set the Bump flag
         LDA #RIGHT      ; If the direction is not already
         CMP PAT_DI,X    ;   to the right, then set it
-        BEQ D2LEFT
-        STA PAT_DI,X
-        RTS             ; Return to draw routine
-D2LEFT: LDA #LEFT
-        STA PAT_DI,X
-        RTS             ; Return to draw routine
-        
+        BEQ BUMP_L
+OFFL_R: STA PAT_DI,X
+        RTS             ; Return to draw routine        
+BUMP_L: LDA #LEFT
+        BNE OFFL_R
+                
 ; Move Off Ladder
 ; Sets the direction to a pseudo-random one. But, more
-; importantly, this sets the bottom ladder location if the
-; patrol has a downward travel. If the patrol reaches this
-; point again, it will change its travel to upward most
-; of the time. Only the low byte is used for this operation
-; since the point is to keep the patrol from getting
-; stuck locally.
-MVOFFL: LDA PAT_DI,X
-        CMP #DOWN
-        BNE CH_DIR
-        LDA DATA_L
-        STA PAT_LL,X
-CH_DIR  STA PAT_DI,X
-        TXA             ; Clear or set the Bump flag, based
-        AND #$01        ;   on which patrol number this is
-        STA PAT_BF,X    ;   ,,
-        LDA #LEFT       ; Default to left, which is nice and $80
-        CMP TIMER       ; But semi-randomly face right instead
-        BCS SETDIR
-        LDA #RIGHT
-SETDIR: STA PAT_DI,X
-        RTS       
-        
+; importantly, this sets the ladder checkpoint. If the patrol 
+; reaches this point again, it will change its travel direction
+; some of the time. Only the low byte is used for this operation
+; since the point is to keep the patrol from getting stuck
+; locally.
+;
+; X is the real table index
+MVOFFL: LDA DATA_L      ; Set the checkpoint  
+        STA PAT_CP,X    ;   ,,
+        LDY #LEFT       ; Choose left or right with equal
+        JSR FIFTY       ;   probability
+        BCC SETDIR      ;   ,,
+        LDY #RIGHT      ;   ,,
+SETDIR: LDA #$00        ; Reset the Bump flag for off-ladder
+        STA PAT_BF,X    ;   movement
+        TYA             ; Set the chosen direction, which will
+        STA PAT_DI,X    ;   be used next time the patrol moves
+        RTS     
+       
+; Reverse Vertical Travel 
+;
+; X is the real table index
+REV_TR: LDY #DOWN
+        LDA PAT_TR,X
+        CMP #UP
+        BEQ CHG_TR
+        LDY #UP
+CHG_TR: LDA #$00        ; Clear the checkpoint first, so tht
+        STA PAT_CP,X    ;   the Accumulator can be returned as
+        TYA             ;   the newly-selected direction
+        STA PAT_TR,X    ;   ,,
+        STA PAT_DI,X    ; Set direction the same way
+        RTS
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MOVEMENT SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -810,12 +777,25 @@ CSUB_R: RTS
 ; or a patrol.  Zero flag is set if the CURSOR is blocked.
 ISBLOC: LDY #$00
         LDA (CURSOR),Y
-        CMP #CH_WAL
+        CMP #CH_WAL     ; Is it a wall?
         BEQ OP_R
-        CMP #CH_FWA     ; Also check for the secret "false wall"
+        CMP #CH_FWA     ; Is it a false wall?
         BEQ OP_R
         JSR IS_PAT
 OP_R:   RTS
+        
+; Is Up Open    
+; Checks whether the Up direction is open to a patrol, taking
+; into account the top of screen. Passed through to OPEN2P,
+; below, which will finish the jorb. Zero flag is clear
+; if the CURSOR is not open
+UPOPEN: LDA CUR_H
+        CMP #>SCREEN 
+        BNE OPEN2P 
+        LDA CURSOR 
+        CMP #$58 
+        BCS OPEN2P
+        RTS
         
 ; Is Open to Patrol
 ; Patrols can move along corridors and ladders, and they can
@@ -1360,8 +1340,7 @@ HITTUR: JSR IS_TUR      ; Is it a turtle?
         JMP LOS_R       ; Anything else stops the beam
       
 ; Damage!
-; The player or a turtle have taken a hit
-; Falls through to DRAWPL
+; The player has taken a hit
 DAMAGE: LDA HEALTH
         BEQ DAMA_R
         DEC HEALTH
@@ -1444,10 +1423,10 @@ F_COR:  LDA #$0A        ; Initialize the current level
 NX_COR: STA REMAIN      ; Start a new corridor
         CPX #$00        ; Level 0 is a special case; it always
         BEQ DRAW        ;   has a single full-length corridor
-        CMP CORLIM      ; Limit the size of a single corridor
+        CMP #CORLIM     ; Limit the size of a single corridor
         BCC G_LEN       ; ,,
-        LDA CORLIM      ; ,,
-G_LEN:  JSR RAND        ; Y = Length of the next corridor
+        LDA #CORLIM     ; ,,
+G_LEN:  JSR PSRAND      ; Y = Length of the next corridor
 DRAW:   JSR DRCORR      ; Draw the corridor
         STY SCRPAD      ; Update remaining cells by
         LDA REMAIN      ;   subtracting the size of the
@@ -1494,7 +1473,7 @@ KNLOOP: STA (CURSOR),Y  ; Knock out Y walls
         PLA             ; A is now the passed Y register, the
                         ;   length of the corridor.
         PHA             ; But we still need Y for later
-        JSR RAND        ; Y is now a random index within the
+        JSR PSRAND      ; Y is now a random index within the
                         ;   corridor. 
         DEY               
         TYA
@@ -1524,26 +1503,23 @@ RESET:  PLA             ; Start restoring things for return
 ; Initialize Level
 INITLV: JSR CLSR
         LDA #$00
-        STA HUNTER
+        STA HUNTER      ; Disable Hunter mode
+        STA PATRLS      ; Initialize patrol table data
         JSR USCORE      ; Display current score
         JSR SHOWHL      ; Display current health
-        LDA GLEVEL      ; Starting at level 8, there are some
-        CMP #$08        ;   changes to increase the difficulty.
-        LDA #$08        ;   * The maze gets more cramped
-        BCC INIT_C      ;   * The patrols start in Hunter mode
-        LDA #$06        ;   ,,
-        JSR HUNT        ;   ,,
-INIT_C: STA CORLIM
-        STA TEMPO
         JSR MAZE
         LDA #$5A        ; Position the player at the top
         STA PLAYER      ;   of the maze.
         LDY #>SCREEN
         STY PLR_H
         JSR PLPLR       ; Place the player
-        LDA #CH_SPC
-        STA UNDER       ; Start with a space under player
-        LDA #$07        ; The location terminal is not used
+        LDA #CH_SPC     ; Start with a space under player
+        STA UNDER       ; ,,
+        LDA GLEVEL      ; Patrols start in Hunter mode after
+        CMP #$08        ;   level 9
+        BCC POPTER      ;   ,,
+        JSR HUNT        ;   ,,
+POPTER: LDA #$07        ; The location terminal is not used
         CMP GLEVEL      ;   after level 9
         BCC POPTUR
         LDY #$01        ; Populate the location terminal
@@ -1559,8 +1535,6 @@ PPT1:   TAY             ; ,,
         STY TURTLS      ; ,,
         LDX #CH_TUR     ; ,,
         JSR POPULA      ; ,,
-        LDA #$00        ; Initialize patrol data table
-        STA PATRLS      ; ,,
         LDA GLEVEL      ; Populate some patrols
         CMP #MAXPAT-1   ; ,, With a limit
         BCC POPPAT      ; ,,
@@ -1573,6 +1547,8 @@ POPPAT: TAY             ; ,,
         LDY #$02        ; ,,
         JSR POPULA      ; ,,
         STA MUCD        ; ,,
+        LDA #$08        ; Initialize music tempo
+        STA TEMPO       ; ,,
         LDA GLEVEL      ; Get level number for theme selection
         AND #$07        ; Limit to 8 musical themes
         JSR MUSIC       ; Select the theme
@@ -1593,8 +1569,6 @@ SETHW:  LDA #SCRCOM     ; Set background color
         STA NOISE       ; ,,
         LDA #$7F        ; Set DDR to read East
         STA VIA2DD      ; ,,
-        LDA TIMER       ; Set the random number seed
-        STA RNDNUM      ; ,,
         LDA #$80        ; Disabled Commodore-Shift
         STA CASECT      ; ,,
         JSR M_STOP      ; Turn off music playing
@@ -1633,13 +1607,13 @@ POPULA: TYA
         INY             ;   level
         BNE PL1         ;   ,,
 RNDY:   LDA #$08        ; Get a random Y-axis
-        JSR RAND
+        JSR PSRAND
 PL1:    LDA #$2C        ; Drop down 2Y lines in the maze
         JSR DATAAD
 RY:     DEY
         BPL PL1
         LDA #$0B        ; Get a random X-axis
-        JSR RAND
+        JSR PSRAND
 PL2:    LDA #$02        ; Move over 2Y lines in the maze
         JSR DATAAD
 RX:     DEY
@@ -1747,30 +1721,38 @@ DADD_R: RTS
 ;;;; UTILITY SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Random Number
-; Gets a random number between 1 and 8. A contains the
+; Gets a random number between 1 and 16. A contains the
 ; maximum value. The random number will be in Y.
-RAND:   STA SCRPAD
-        DEC SCRPAD      ; Behind the scenes, look for a number
-                        ;   between 0 and A - 1. See the INY
-                        ;   below, which compensates
-        JSR BASRND
+PSRAND: STA SCRPAD
+        TXA
+        PHA
+        DEC SCRPAD
+AGAIN:  JSR BASRND
         LDA RNDNUM
-        AND #$07
+        AND #$0F
         CMP SCRPAD
         BCC E_RAND      ; Get another random number if this one
         BEQ E_RAND      ; is greater than the maximum
-        INC SCRPAD
-        LDA SCRPAD
-        BNE RAND
+        BNE AGAIN
 E_RAND: TAY
         INY
+        PLA
+        TAX
         RTS
         
+; Fifty-Fifty
+; Sets the carry flag. Or maybe clears it. You need to test to
+; satistfy your curiosity!
+FIFTY:  LDA #$0F
+        JSR PSRAND
+        CPY #$08
+        RTS        
+                
 ; Delay
 ; Waits the number of jiffies specified in A
 DELAY:  LDY #$00
-        STY TIMER
-DWAIT:  CMP TIMER
+        STY TIME_L
+DWAIT:  CMP TIME_L
         BNE DWAIT
         RTS
 
@@ -1795,15 +1777,15 @@ ENDTXT: .asc $0d,$0d,$0d,"   ' MISSION>OVER (",$00
 HSTXT:  .asc "?HI>",$00
 
 ; Instructional manual text
-MANTXT: .asc "HI",$0d,$0d,$0d
+MANTXT: .asc $0d,$0d,$0d
         .asc "$>TRBO YOUR MISSION IS",$0d
         .asc "!>TO LEAD BABY TURTLES",$0d
         .asc $5b,">TO SAFETY",$0d,$0d
         .asc "(>AVOID THE PATROLS",$0d,$0d
         .asc ".>GEARS FIX DAMAGE",$0d,$0d
         .asc "  FIRE TO DIG COSTS .",$0d,$0d
-        .asc "@>TERMINALS GIVE IN",$0d,$0d
-        .asc "  >AGENT ANZU"
+        .asc "@>TERMINALS GIVE INTEL",$0d,$0d
+        .asc "  >ANZU"
         
 ; NOTE that the first byte in the COLMAP has a double use as the
 ; last byte of MANTXT! This is intentional. Watch out for this
@@ -1812,7 +1794,7 @@ MANTXT: .asc "HI",$0d,$0d,$0d
 ; Partial color map for some characters indexed from SPACE ($20)
 COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
         .byte $03,$03,$0F,$02,$09,$04,$06,$04
-
+        
 ; Spaceship part offsets        
 SHOFF:  .byte $59,$58,$42,$43      
 
@@ -1840,7 +1822,9 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
         .byte $fb,$72                       ; Damaged
         .byte $44,$1F                       ; Bonus
         .byte $2f,$64                       ; Found Health
-       
+
+PAD:    .byte "123456789012345678901234567890123456789012"
+            
 ; The character set must start at $1C00. If you change anything
 ; anywhere, you must account for this. The easiest way is to use
 ; padding bytes immediately before this character data.
