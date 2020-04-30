@@ -24,7 +24,7 @@ BASIC:  .byte $0b,$04,$01,$00,$9e,$34,$31,$31
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; System Resources
 CINV   = $0314          ; ISR vector
-NMINV  = $FFFE          ; NMI vector
+NMINV  = $0318          ; NMI vector
 SCREEN = $1E00          ; Screen character memory (unexpanded)
 COLOR  = $9600          ; Screen color memory (unexpanded)
 IRQ    = $EABF          ; System ISR   
@@ -128,6 +128,7 @@ GLEVEL = $0345          ; Game level
 SCORE  = $0346          ; \ Player score
 SCOR_H = $0347          ; /
 UNDER  = $0348          ; Character underneath player
+MVDOWN = $FE            ; Patrol move-down indicator
 JOYDIR = $F9            ; Joystick direction capture
 DIRBLK = $FA            ; Block direction (UP,RIGHT, RIGHT)
 TURTLS = $FB            ; Turtle count for the level
@@ -632,6 +633,7 @@ CH_DN:  JSR RS_CUR      ; Can't move left or right, so try down
         RTS             ;   ,,
 STUCK:  JSR RS_CUR      ; The patrol is vertically stuck
         JSR REV_TR      ; Reverse travel
+        STA PAT_DI,X    ; ,,
         RTS             ; But end without moving
 
 ; Look Left and Right
@@ -658,16 +660,22 @@ OFFLAD: LDA PAT_BF,X    ; If the Bump flag is set, then consider
 CHKPT:  LDA PAT_CP,X    ; Has the patrol reached its checkpoint?
         CMP CURSOR      ;    ,,
         BNE OFF_D       ;    ,,
-        JSR FIFTY       ; If at the checkpoint, 50% of the time
-        BCC OFF_D       ;   the patrol will reverse its travel
-        JSR REV_TR      ;   and continue with the On Ladder
-        JMP ONLAD       ;   routine
+        LDA #$10        ; At the checkpoint, the patrol has a
+        JSR PSRAND      ;   25% chance of taking the ladder
+        CPY #$0C        ;   and reversing the direction of
+        BCC OFF_D       ;   travel
+        JSR REV_TR      ;   ,,
+        STA PAT_DI,X    ;   ,, (DOWN comes from REV_TR call)
+        JMP ONLAD       ;   ,,
 OFF_D:  LDA PAT_TR,X    ; The direction of travel is down
-        CMP #DOWN       ;   ,,
+        CMP #DOWN       ; ,,
         BNE OFF_U
         JSR MCUR_D      ; If the patrol can move down from
-        JSR OPEN2P      ;   here, then do it. Change direction
-        BNE OFF_R       ;   and return for draw
+        JSR OPEN2P      ;   here, then do it most of the time
+        BNE OFF_R2      ;   and return for draw
+        LDA THEME       ; There's a light probability component
+        CMP #$40        ;   here, based on the current musical
+        BCC OFF_R2      ;   register value
         LDA #DOWN       ;   ,,
         STA PAT_DI,X    ;   ,,
         RTS             ;   ,,
@@ -677,7 +685,11 @@ OFF_U:  JSR MCUR_U      ; If the patrol can move up from
         LDA #UP         ;   ,,
         STA PAT_DI,X    ;   ,,
         RTS             ;   ,,
-OFF_R:  JSR RS_CUR
+OFF_R:  LDA MVDOWN      ;
+        BEQ OFF_R2      ; If the MVDOWN flag was set by UPOPEN,
+        LDA #DOWN       ;   called above, then set the travel to
+        STA PAT_TR,X    ;   Down
+OFF_R2: JSR RS_CUR
         LDA PAT_DI,X
         CMP #RIGHT
         BNE OFF_L
@@ -711,7 +723,8 @@ BUMP_L: LDA #LEFT
 MVOFFL: LDA DATA_L      ; Set the checkpoint  
         STA PAT_CP,X    ;   ,,
         LDY #LEFT       ; Choose left or right with equal
-        JSR FIFTY       ;   probability
+        LDA THEME       ;   probability, based on the musical
+        CMP #$80        ;   theme register
         BCC SETDIR      ;   ,,
         LDY #RIGHT      ;   ,,
 SETDIR: LDA #$00        ; Reset the Bump flag for off-ladder
@@ -732,7 +745,6 @@ CHG_TR: LDA #$00        ; Clear the checkpoint first, so tht
         STA PAT_CP,X    ;   the Accumulator can be returned as
         TYA             ;   the newly-selected direction
         STA PAT_TR,X    ;   ,,
-        STA PAT_DI,X    ; Set direction the same way
         RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -789,12 +801,15 @@ OP_R:   RTS
 ; into account the top of screen. Passed through to OPEN2P,
 ; below, which will finish the jorb. Zero flag is clear
 ; if the CURSOR is not open
-UPOPEN: LDA CUR_H
+UPOPEN: LDA #$00
+        STA MVDOWN
+        LDA CUR_H
         CMP #>SCREEN 
         BNE OPEN2P 
         LDA CURSOR 
         CMP #$58 
         BCS OPEN2P
+        INC MVDOWN
         RTS
         
 ; Is Open to Patrol
@@ -881,7 +896,7 @@ CHRCOL: STA DATA_L
         LDY #$00
         LDA (DATA_L),Y  ; Character at the specified address
         SEC
-        SBC #CH_SPC     ; Get a color table index
+        SBC #$1C        ; Get a color table index
         TAX             ;   and store it in X for later
         LDA DATA_H      ; Subtract the starting page of screen
         SEC             ;   memory from the specified page to
@@ -891,7 +906,7 @@ CHRCOL: STA DATA_L
         STA DATA_H      ;   data now points to color location
         PLP
         BCS SETCOL      ; If carry flag is clear, set index to 0
-        LDX #$00        ;   to use the space's color in the map
+        LDX #$04        ;   to use the space's color in the map
 SETCOL: LDA COLMAP,X    ; Get the color for this character
         STA (DATA_L),Y  ; Set the color of the character
         PLA
@@ -948,7 +963,7 @@ SCDRAW: JSR HOME
         INX
         LDA #$00
         JSR PRTFIX
-        LDA #">"        ; For the underline
+        LDA #CH_SPC
         JSR CHROUT
         LDX SCORE
         LDA SCOR_H
@@ -1743,7 +1758,7 @@ E_RAND: TAY
 ; Fifty-Fifty
 ; Sets the carry flag. Or maybe clears it. You need to test to
 ; satistfy your curiosity!
-FIFTY:  LDA #$0F
+FIFTY:  LDA #$10
         JSR PSRAND
         CPY #$08
         RTS        
@@ -1774,26 +1789,23 @@ INTRO:  .asc "TRBO?>TURTLE>RESCUEBOT"
         
 ENDTXT: .asc $0d,$0d,$0d,"   ' MISSION>OVER (",$00
 
-HSTXT:  .asc "?HI>",$00
+HSTXT:  .asc " HI>",$00
 
 ; Instructional manual text
-MANTXT: .asc $0d,$0d,$0d
-        .asc "$>TRBO YOUR MISSION IS",$0d
-        .asc "!>TO LEAD BABY TURTLES",$0d
+MANTXT: .asc "TRBO?",$0d,$0d,$0d
+        .asc "$>YOUR MISSION IS TO",$0d,$0d
+        .asc "!>LEAD BABY TURTLES",$0d,$0d
         .asc $5b,">TO SAFETY",$0d,$0d
         .asc "(>AVOID THE PATROLS",$0d,$0d
         .asc ".>GEARS FIX DAMAGE",$0d,$0d
         .asc "  FIRE TO DIG COSTS .",$0d,$0d
         .asc "@>TERMINALS GIVE INTEL",$0d,$0d
-        .asc "  >ANZU"
+        .asc "  >>DR ANZU",$00
         
-; NOTE that the first byte in the COLMAP has a double use as the
-; last byte of MANTXT! This is intentional. Watch out for this
-; if you make any changes.        
-
-; Partial color map for some characters indexed from SPACE ($20)
-COLMAP: .byte $00,$05,$05,$05,$07,$07,$07,$03
-        .byte $03,$03,$0F,$02,$09,$04,$06,$04
+; Partial color map for some characters indexed from $1C
+COLMAP: .byte $04,$04,$ff,$ff,$00,$05,$05,$05
+        .byte $07,$07,$07,$03,$03,$03,$0F,$02
+        .byte $09,$04,$06,$04
         
 ; Spaceship part offsets        
 SHOFF:  .byte $59,$58,$42,$43      
@@ -1823,8 +1835,6 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
         .byte $44,$1F                       ; Bonus
         .byte $2f,$64                       ; Found Health
 
-PAD:    .byte "123456789012345678901234567890123456789012"
-            
 ; The character set must start at $1C00. If you change anything
 ; anywhere, you must account for this. The easiest way is to use
 ; padding bytes immediately before this character data.
@@ -1881,7 +1891,7 @@ CHDATA: .byte $00,$00,$ff,$c3,$ff,$3c,$c3,$c3 ; SC Terminal
         .byte $00,$00,$aa,$be,$aa,$28,$82,$82 ; MC Terminal
         .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
         .byte $10,$54,$38,$c6,$38,$54,$10,$00 ; Health
-        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; f
+        .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; False Wall
         .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
         .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
         .byte $7f,$03,$03,$7f,$40,$40,$7f,$00 ; 2
