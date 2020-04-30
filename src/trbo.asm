@@ -666,7 +666,7 @@ CHKPT:  LDA PAT_CP,X    ; Has the patrol reached its checkpoint?
         CPY #$0C        ;   and reversing the direction of
         BCC OFF_D       ;   travel
         JSR REV_TR      ;   ,,
-        STA PAT_DI,X    ;   ,, (DOWN comes from REV_TR call)
+        STA PAT_DI,X    ;   ,, (direction comes from REV_TR)
         JMP ONLAD       ;   ,,
 OFF_D:  LDA PAT_TR,X    ; The direction of travel is down
         CMP #DOWN       ; ,,
@@ -742,7 +742,7 @@ REV_TR: LDY #DOWN
         CMP #UP
         BEQ CHG_TR
         LDY #UP
-CHG_TR: LDA #$00        ; Clear the checkpoint first, so tht
+CHG_TR: LDA #$00        ; Clear the checkpoint first, so that
         STA PAT_CP,X    ;   the Accumulator can be returned as
         TYA             ;   the newly-selected direction
         STA PAT_TR,X    ;   ,,
@@ -1573,7 +1573,9 @@ POPPAT: TAY             ; ,,
 INIT_R: RTS 
 
 ; Setup Hardware
-SETHW:  LDA #SCRCOM     ; Set background color
+SETHW:  LDA TIME_L      ; Seed random number generator
+        STA RNDNUM      ; ,,
+        LDA #SCRCOM     ; Set background color
         STA BACKGD      ; ,,
         LDA #$FF        ; Set color register
         STA VICCR5      ; ,,
@@ -1755,15 +1757,7 @@ E_RAND: TAY
         PLA
         TAX
         RTS
-        
-; Fifty-Fifty
-; Sets the carry flag. Or maybe clears it. You need to test to
-; satistfy your curiosity!
-FIFTY:  LDA #$10
-        JSR PSRAND
-        CPY #$08
-        RTS        
-                
+                        
 ; Delay
 ; Waits the number of jiffies specified in A
 DELAY:  LDY #$00
@@ -1790,7 +1784,7 @@ INTRO:  .asc "TRBO?>TURTLE>RESCUEBOT"
         
 ENDTXT: .asc $0d,$0d,$0d,"   ' MISSION>OVER (",$00
 
-HSTXT:  .asc " HI>",$00
+HSTXT:  .asc "  HI?",$00
 
 ; Instructional manual text
 MANTXT: .asc "TRBO?",$0d,$0d,$0d
@@ -1801,7 +1795,7 @@ MANTXT: .asc "TRBO?",$0d,$0d,$0d
         .asc ".>GEARS FIX DAMAGE",$0d,$0d
         .asc "  FIRE TO DIG COSTS .",$0d,$0d
         .asc "@>TERMINALS GIVE INTEL",$0d,$0d
-        .asc "  >>DR ANZU",$00
+        .asc "  >>AGENT ANZU",$00
         
 ; Partial color map for some characters indexed from $1C
 COLMAP: .byte $04,$04,$ff,$ff,$00,$05,$05,$05
@@ -1893,16 +1887,16 @@ CHDATA: .byte $00,$00,$ff,$c3,$ff,$3c,$c3,$c3 ; SC Terminal
         .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; Wall
         .byte $10,$54,$38,$c6,$38,$54,$10,$00 ; Health
         .byte $ff,$cc,$88,$ff,$33,$22,$ff,$00 ; False Wall
-        .byte $7f,$43,$43,$43,$41,$41,$7f,$00 ; 0
-        .byte $03,$03,$03,$03,$01,$01,$01,$00 ; 1
-        .byte $7f,$03,$03,$7f,$40,$40,$7f,$00 ; 2
-        .byte $7f,$01,$01,$7f,$03,$03,$7f,$00 ; 3
-        .byte $43,$43,$43,$7f,$01,$01,$01,$00 ; 4
-        .byte $7f,$40,$40,$7f,$03,$03,$7f,$00 ; 5
-        .byte $7f,$40,$40,$7f,$61,$61,$7f,$00 ; 6
-        .byte $7f,$03,$03,$03,$01,$01,$01,$00 ; 7
-        .byte $7f,$41,$41,$7f,$43,$43,$7f,$00 ; 8
-        .byte $7f,$43,$43,$7f,$01,$01,$01,$00 ; 9
+        .byte $fe,$86,$86,$86,$82,$82,$fe,$00 ; 0
+        .byte $06,$06,$06,$06,$02,$02,$02,$00 ; 1
+        .byte $fe,$06,$06,$fe,$80,$80,$fe,$00 ; 2
+        .byte $fe,$02,$02,$fe,$06,$06,$fe,$00 ; 3
+        .byte $86,$86,$86,$fe,$02,$02,$02,$00 ; 4
+        .byte $fe,$80,$80,$fe,$06,$06,$fe,$00 ; 5
+        .byte $fe,$80,$80,$fe,$c2,$c2,$fe,$00 ; 6
+        .byte $fe,$06,$06,$06,$02,$02,$02,$00 ; 7
+        .byte $fe,$82,$82,$fe,$86,$86,$fe,$00 ; 8
+        .byte $fe,$86,$86,$fe,$02,$02,$02,$00 ; 9
         .byte $00,$00,$00,$00,$00,$80,$80,$a8 ; Ship 1
         .byte $00,$00,$00,$00,$00,$00,$00,$0a ; Ship 2
         .byte $2b,$2f,$0b,$02,$00,$00,$02,$08 ; Ship 3
