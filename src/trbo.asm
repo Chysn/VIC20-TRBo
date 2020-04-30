@@ -298,7 +298,7 @@ BLUE:   STA COLOR,Y     ;   looks more ominous
         JSR PRTSTR      ; ,,
         LDA #$00        ; Show the final score
         JSR USCORE      ; ,,
-        JSR HSCORE      ; Calculate and show high score
+        JSR HSCORE      ; Display high score
         LDA #$0F        ; Slow the music down, so that it
         STA TEMPO       ;   sounds more ominous. I love ominous!
         STA FADE        ; Fade out music
@@ -956,7 +956,8 @@ CHKBM:  LDA (CURSOR),Y
 CHKB_R: RTS
         
 ; Update Score        
-; Update the score and draw it on the screen
+; Update the score and display it on the screen
+; Also update the high score, in case someone presses RESTORE
 ;
 ; Preparations
 ;     A is the amount to add to the current score
@@ -991,8 +992,7 @@ SCDRAW: JSR HOME        ; Draw the level indicator and
         RTS             ;   ,,
         
 ; Draw High Score
-; If the current score exceeds the high score, replace
-; the high score. In either case, display the high score
+; Display the high score
 HSCORE: LDA #<HSTXT     ; Show the high score text
         LDY #>HSTXT     ; ,,
         JSR PRTSTR      ; ,,
