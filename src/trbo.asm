@@ -1806,9 +1806,9 @@ MANTXT: .asc "TRBO?",$0d,$0d,$0d
         .asc "  >>AGENT ANZU",$00
         
 ; Partial color map for some characters indexed from $1C
-COLMAP: .byte $04,$04,$ff,$ff,$00,$05,$05,$05
-        .byte $07,$07,$07,$03,$03,$03,$0F,$02
-        .byte $09,$04,$06,$04
+COLMAP: .byte $02,$02,$ff,$ff,$00,$05,$05,$05
+        .byte $07,$07,$07,$03,$03,$03,$0F,$04
+        .byte $09,$02,$06,$02
         
 ; Spaceship part offsets        
 SHOFF:  .byte $59,$58,$42,$43      
@@ -1911,5 +1911,4 @@ CHDATA: .byte $00,$00,$ff,$c3,$ff,$3c,$c3,$c3 ; SC Terminal
         .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship 4
         .byte $00,$00,$00,$00,$00,$7c,$70,$00 ; Text Space
         .byte $00,$00,$20,$30,$00,$20,$30,$00 ; Colon
-
         

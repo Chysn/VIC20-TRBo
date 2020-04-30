@@ -11,3 +11,6 @@ printf "\x01\x10" | cat - $DEST/src/trbo.obj > $DEST/vic/trbo
 cp $DEST/vic/trbo /Volumes/VIC20/trbo
 diskutil unmount /Volumes/VIC20
 
+rm $DEST/vic/trbo.d64
+c1541 -format trbo,8 d64 $DEST/vic/trbo.d64 -write $DEST/vic/trbo
+
