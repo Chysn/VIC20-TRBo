@@ -104,6 +104,7 @@ CH_HLT = $2E            ; Health (period)
 CH_FWA = $2F            ; False Wall (slash)
 CH_BWV = $1C            ; Broken Wall Vert (GBP)
 CH_BWH = $1D            ; Broken Wall Horiz (close bracket)
+CH_PLD = $1E            ; TRBo Destroyed (up arrow)
    
 ; Music Player Memory                 
 THEME  = $033C          ; \ Music shift register theme
@@ -275,7 +276,7 @@ BONUS:  LDA FX_BON      ; Launch the bonus sound effect
         
 ; Game Over, Juggalos and Juggalettes!        
 GAMOVR: JSR REVEAL      ; Reveal the board
-        LDA #CH_PLR     ; Show the player
+        LDA #CH_PLD     ; Show the player
         LDY #$00        ; ,,
         STA (PLAYER),Y  ; ,,
         LDA #$06        ; Make the board blue, so that it
@@ -1874,15 +1875,15 @@ CHDATA: .byte $00,$00,$ff,$c3,$ff,$3c,$c3,$c3 ; SC Terminal
         .byte $00,$18,$7e,$99,$7e,$18,$24,$42 ; SC Spaceship
         .byte $83,$c0,$80,$c3,$21,$11,$c3,$00 ; Broken Wall V
         .byte $ef,$c4,$08,$00,$02,$11,$dd,$00 ; Broken Wall H
-        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
+        .byte $00,$00,$00,$08,$d2,$d7,$f7,$da ; Destroyed TRBo
         .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
         .byte $00,$00,$00,$00,$00,$00,$00,$00 ; Space
         .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; Turtle R
         .byte $00,$00,$0c,$de,$de,$3f,$12,$36 ; Turtle L
         .byte $00,$18,$5a,$42,$3c,$3c,$5a,$81 ; Turtle C
-        .byte $0f,$0d,$07,$3c,$42,$99,$3c,$18 ; Robot R
-        .byte $f0,$b0,$e0,$3c,$42,$99,$3c,$18 ; Robot L
-        .byte $3c,$3c,$18,$3c,$42,$bd,$24,$24 ; Robot C
+        .byte $0f,$0d,$07,$3c,$42,$99,$3c,$18 ; TRBo R
+        .byte $f0,$b0,$e0,$3c,$42,$99,$3c,$18 ; TRBo L
+        .byte $3c,$3c,$18,$3c,$42,$bd,$24,$24 ; TRBo C
         .byte $40,$3c,$37,$3c,$3c,$00,$66,$66 ; Patrol R
         .byte $02,$3c,$ec,$3c,$3c,$00,$66,$66 ; Patrol L
         .byte $04,$18,$7e,$7e,$3c,$00,$7e,$66 ; Patrol C
