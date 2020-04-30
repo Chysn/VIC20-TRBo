@@ -963,37 +963,37 @@ CHKB_R: RTS
 USCORE: CLC
         ADC SCORE
         STA SCORE
-        BCC SCDRAW
+        BCC UHSC
         INC SCOR_H
-SCDRAW: JSR HOME
-        LDA #"L"
-        JSR CHROUT
-        LDX GLEVEL
-        INX
-        LDA #$00
-        JSR PRTFIX
-        LDA #CH_SPC
-        JSR CHROUT
-        LDX SCORE
-        LDA SCOR_H
-        JSR PRTFIX
-        RTS  
-        
-; Update High Score
-; If the current score exceeds the high score, replace
-; the high score. In either case, display the high score
-HSCORE: LDA HISC_H      ; Is the last score greater than
+UHSC:   LDA HISC_H      ; Is the last score greater than
         CMP SCOR_H      ;   the high score?
         BCC NEWHS       ;   ,,
-        BNE HSDRAW      ;   ,,
+        BNE SCDRAW      ;   ,,
         LDA SCORE       ;   ,,
         CMP SCOR_H      ;   ,,
-        BCC HSDRAW      ;   ,,
+        BCC SCDRAW      ;   ,,
 NEWHS:  LDA SCORE       ; A new high score has been
         STA HISCOR      ; achived; update high score
         LDA SCOR_H      ; ,,
-        STA HISC_H      ; ,,
-HSDRAW: LDA #<HSTXT     ; Show the high score text
+        STA HISC_H      ; ,,        
+SCDRAW: JSR HOME        ; Draw the level indicator and
+        LDA #"L"        ;   score at the top of the screen,
+        JSR CHROUT      ;   but there's no room for the
+        LDX GLEVEL      ;   high score. The high score is
+        INX             ;   displayed after the game, using
+        LDA #$00        ;   HSCORE, below.
+        JSR PRTFIX      ;   ,,
+        LDA #CH_SPC     ;   ,,
+        JSR CHROUT      ;   ,,
+        LDX SCORE       ;   ,,
+        LDA SCOR_H      ;   ,,
+        JSR PRTFIX      ;   ,,
+        RTS             ;   ,,
+        
+; Draw High Score
+; If the current score exceeds the high score, replace
+; the high score. In either case, display the high score
+HSCORE: LDA #<HSTXT     ; Show the high score text
         LDY #>HSTXT     ; ,,
         JSR PRTSTR      ; ,,
         LDX HISCOR      ; Show the high score number
