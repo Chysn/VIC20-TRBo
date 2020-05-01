@@ -189,7 +189,7 @@ WELCOM: JSR CLSR        ; Clear screen
         LDA #<INTRO     ; Show the intro screen
         LDY #>INTRO     ; ,,
         JSR PRTSTR      ; ,,
-        JSR MAZE        ; Draw Maze
+        JSR LAIR        ; Draw Maze
         LDY #$05        ; Populate some turtles
         LDX #CH_TUR     ; ,,
         JSR POPULA      ; ,,
@@ -432,7 +432,7 @@ MV_R:   JSR EXPLOR      ; Explore surroundings
 ; NPC Move
 ; Move non-player characters (turtles and patrols)        
 NPC_MV: LDA SCREEN+$5A  ; First, look for a turtle near the
-        JSR IS_TUR      ;   spaceship. This turtle will be
+        JSR IS_TUR      ;   safecraft. This turtle will be
         BNE MVPATS      ;   rescued. Rescue involves:
         LDA #CH_SPC     ;   (1) Removing the turtle
         STA SCREEN+$5A  ;   ,,
@@ -1033,7 +1033,7 @@ EX_L:   JSR MCUR_L
         LDA (CURSOR),Y
         CMP #CH_SPC
         BEQ EX_L
-        JSR SPSHIP
+        JSR SCRAFT
         RTS
                 
 ; Reveal Up/Down
@@ -1222,7 +1222,7 @@ NROLL:  TXA
         BNE VOL         ;   reaches zero
         JMP M_STOP
 VOLREG: LDA THM_H       ; Set the music volume and flash
-VOL:    STA VOLUME      ;   the windows of the spaceship
+VOL:    STA VOLUME      ;   the windows of the safecraft
         LDA HUNTER      ; If the patrols are in hunter mode,
         BEQ NOTE_R      ;   play a low counterpoint
 NOTE_R: RTS
@@ -1304,7 +1304,7 @@ LOS_CH: LDY #$00
         BEQ LOS_R       ;   No line-of-sight found
         CMP #CH_FWA     ; Is it a false wall?
         BEQ LOS_R       ;   No line-of-sight found
-        CMP #$3D        ; Right corner of ship?
+        CMP #$3D        ; Right corner of craft?
         BEQ LOS_R       ;   No line-of-sight found
         JSR IS_PAT      ; Is it a patrol?
         BEQ LOS_R       ;   They don't fire on each other
@@ -1380,12 +1380,12 @@ DAMAGE: LDA HEALTH
 DAMA_R: RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;; MAZE SUBROUTINES
+;;;; LAIR SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Generate Maze
-; Generates and displays an 10x9 maze with the Sidewinder 
-; algorithm. The maze is 8x8, but takes up a 16x16 on the screen
-MAZE:   LDY #$00
+; Generate Lair
+; Generates and displays an 10x9 lair with the Sidewinder 
+; algorithm.
+LAIR:   LDY #$00
 L1:     LDA #CH_WAL
         STA SCREEN+$6E,Y
         STA SCREEN+$016E,Y
@@ -1407,7 +1407,7 @@ FWAL:   LDY #$00        ;   prevent the player from digging from
         STA (CURSOR),Y  ;   ,,
         DEX             ;   ,,
         BNE FWAL        ;   ,,
-        LDA #$5A        ; Offset for the maze
+        LDA #$5A        ; Offset for the lair
         STA CURSOR
         LDA #>SCREEN
         STA CUR_H 
@@ -1420,11 +1420,11 @@ LEVEL:  TXA
         INX
         CPX #$09
         BNE LEVEL
-        JSR SPSHIP
+        JSR SCRAFT
         RTS
         
 ; Draw Level
-; Generates and draw a level of the sidewinder maze
+; Generates and draw a level of the sidewinder lair
 ;
 ; Preparations
 ;     X is the level number
@@ -1485,7 +1485,7 @@ KNLOOP: STA (CURSOR),Y  ; Knock out Y walls
         BPL KNLOOP
 ; Select a random cell from the corridor and knock out a wall
 ; directly above it. This provides access to every other open
-; cell in the maze.
+; cell in the lair.
         CPX #$00        ; If this is the first level, there's
         BEQ RESET       ; no knocking out the ceiling.
         PLA             ; A is now the passed Y register, the
@@ -1525,9 +1525,9 @@ INITLV: JSR CLSR
         STA PATRLS      ; Initialize patrol table data
         JSR USCORE      ; Display current score
         JSR SHOWHL      ; Display current health
-        JSR MAZE        ; Create and draw the maze and ship
+        JSR LAIR        ; Create and draw the lair and safecraft
         LDA #$5A        ; Position the player at the top
-        STA PLAYER      ;   of the maze, and then place
+        STA PLAYER      ;   of the lair, and then place
         LDY #>SCREEN    ;   the player
         STY PLR_H       ;   ,,
         LDX #CH_PLR     ;   ,,
@@ -1583,7 +1583,7 @@ SETHW:  LDA TIME_L      ; Seed random number generator
         STA BACKGD      ; ,,
         LDA #$FF        ; Set color register
         STA VICCR5      ; ,,
-        LDA #$4F        ; Set volume and spaceship port color
+        LDA #$4F        ; Set volume and safecraft port color
         STA VOLUME      ; ,,
         LDA #$00        ; Initialize sound registers
         STA VOICEM      ; ,,
@@ -1614,7 +1614,7 @@ SETHW:  LDA TIME_L      ; Seed random number generator
 ;
 ; Preparations
 ;     X is the character
-;     Y is the number of that character to put in the maze        
+;     Y is the number of that character to put in the lair        
 POPULA: TYA             ; X & Y are put on the stack for use
         PHA             ;   later in this routine, not because
         TXA             ;   they're expected to be preserved,
@@ -1630,13 +1630,13 @@ POPULA: TYA             ; X & Y are put on the stack for use
         BNE PL1         ;   ,,
 RNDY:   LDA #$08        ; Get a random Y-axis
         JSR PSRAND
-PL1:    LDA #$2C        ; Drop down 2Y lines in the maze
+PL1:    LDA #$2C        ; Drop down 2Y lines in the lair
         JSR DATAAD
 RY:     DEY
         BPL PL1
         LDA #$0B        ; Get a random X-axis
         JSR PSRAND
-PL2:    LDA #$02        ; Move over 2Y lines in the maze
+PL2:    LDA #$02        ; Move over 2Y lines in the lair
         JSR DATAAD
 RX:     DEY
         BPL PL2
@@ -1670,11 +1670,11 @@ PLL0:   CLC             ; Hide all the populated objects
         BNE POPULA
         RTS
 
-; Draw the spaceship, which is the home base of TRBo.       
-SPSHIP: LDA #$3A        ; Starting character for the
-        STA SCRPAD      ;   four-piece ship
+; Draw the safecraft, which is the home base of TRBo.       
+SCRAFT: LDA #$3A        ; Starting character for the
+        STA SCRPAD      ;   four-piece craft
         LDX #$03        ; Each character has an offset in
-SSL0:   LDY SHOFF,X     ;   the SHOFF table, so iterate
+SSL0:   LDY SC_OFF,X    ;   the SC_OFF table, so iterate
         LDA SCRPAD      ;   through all four pieces and
         STA SCREEN,Y    ;   place them at their proper
         LDA #$0F        ;   offsets. Set a color for each
@@ -1784,22 +1784,22 @@ WAIT_F: JSR READJS      ; Wait for the fire button
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 INTRO:  .asc "TRBO?>TURTLE>RESCUEBOT"
         .asc "   BY>JASON>JUSTIAN",$0d,$0d
-        .asc "    FIRE>TO>START",$00
+        .asc "     FIRE>TO>START",$00
         
 ENDTXT: .asc $0d,$0d,$0d,"     MISSION>OVER",$00
 
 HSTXT:  .asc "  HI?",$00
 
 ; Instructional manual text
-MANTXT: .asc "TRBO?",$0d,$0d,$0d
-        .asc "$>YOUR MISSION IS TO",$0d,$0d
+MANTXT: .asc "TRBO>>",$0d,$0d,$0d
+        .asc "$>YOUR MISSION?",$0d,$0d
         .asc "!>LEAD BABY TURTLES",$0d,$0d
-        .asc $5b,">TO SAFETY",$0d,$0d
-        .asc "(>AVOID THE PATROLS",$0d,$0d
+        .asc $5b,">TO SAFECRAFT",$0d,$0d
+        .asc "(>AVOID PATROLS",$0d,$0d
         .asc $5f,">TERMINALS GIVE INTEL",$0d
         .asc ".>GEARS FIX DAMAGE",$0d,$0d
-        .asc "POINT @ FIRE @ PAY .",$0d
-        .asc "  TO DIG",$0d,$0d,$0d
+        .asc "  POINT @ FIRE TO DIG?",$0d
+        .asc "  LOSE A .",$0d,$0d,$0d
         .asc ">>AGENT ANZU",$00
         
 ; Partial color map for some characters indexed from $1C
@@ -1807,8 +1807,8 @@ COLMAP: .byte $02,$02,$01,$01,$00,$05,$05,$05
         .byte $07,$07,$07,$03,$03,$03,$0F,$04
         .byte $09,$02,$06,$02
         
-; Spaceship part offsets        
-SHOFF:  .byte $59,$58,$42,$43      
+; Safecraft part offsets        
+SC_OFF: .byte $59,$58,$42,$43      
 
 ; Curated musical themes for the shift register player.  
 THEMES: .word $5412
@@ -1844,7 +1844,7 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
 ; a reliable method as long as you don't add anything AFTER this
 ; character data.
 ;
-CHDATA: .byte $fc,$80,$84,$fe,$c4,$c4,$fc,$00 ; &
+CHDATA: .byte $f8,$80,$84,$fe,$c4,$c4,$fc,$00 ; &
         .byte $fe,$02,$02,$fe,$86,$86,$fe,$00 ; A
         .byte $fc,$84,$84,$fe,$c2,$c2,$fe,$00 ; B
         .byte $fe,$80,$80,$c0,$c0,$c0,$fe,$00 ; C
@@ -1871,7 +1871,7 @@ CHDATA: .byte $fc,$80,$84,$fe,$c4,$c4,$fc,$00 ; &
         .byte $c2,$c2,$ee,$38,$ee,$82,$82,$00 ; X
         .byte $82,$82,$82,$fe,$06,$06,$fe,$00 ; Y
         .byte $fe,$02,$0e,$38,$e0,$8e,$fe,$00 ; Z
-        .byte $00,$18,$7e,$99,$7e,$18,$24,$42 ; SC Spaceship
+        .byte $00,$18,$7e,$99,$7e,$18,$24,$42 ; SC Safecraft
         .byte $83,$c0,$80,$c3,$21,$11,$c3,$00 ; Broken Wall V
         .byte $ef,$c4,$08,$00,$02,$11,$dd,$00 ; Broken Wall H
         .byte $00,$00,$00,$08,$d2,$d7,$f7,$da ; Destroyed TRBo
@@ -1902,10 +1902,10 @@ CHDATA: .byte $fc,$80,$84,$fe,$c4,$c4,$fc,$00 ; &
         .byte $fe,$06,$06,$06,$02,$02,$02,$00 ; 7
         .byte $fe,$82,$82,$fe,$86,$86,$fe,$00 ; 8
         .byte $fe,$86,$86,$fe,$02,$02,$02,$00 ; 9
-        .byte $00,$00,$00,$00,$00,$80,$80,$a8 ; Ship 1
-        .byte $00,$00,$00,$00,$00,$00,$00,$0a ; Ship 2
-        .byte $2b,$2f,$0b,$02,$00,$00,$02,$08 ; Ship 3
-        .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Ship 4
+        .byte $00,$00,$00,$00,$00,$80,$80,$a8 ; Safecraft 1
+        .byte $00,$00,$00,$00,$00,$00,$00,$0a ; Safecraft 2
+        .byte $2b,$2f,$0b,$02,$00,$00,$02,$08 ; Safecraft 3
+        .byte $ba,$be,$b8,$a0,$80,$80,$20,$08 ; Safecraft 4
         .byte $00,$00,$00,$00,$00,$7c,$70,$00 ; Text Space
         .byte $00,$00,$20,$30,$00,$20,$30,$00 ; Colon
         

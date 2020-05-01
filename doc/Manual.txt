@@ -5,7 +5,7 @@ Play Guide
 TLDR:
 
 * When you find a turtle, it will follow you. Lead it to the
-  surface and aboard your safecraft for 100 points.
+  surface and aboard your Safecraft for 100 points.
 
 * A terminal will reveal the lair. 250 points.
 
@@ -38,7 +38,7 @@ baby turtles are being held. If you encounter a turtle,
 it will follow you around. As you find more turtles, they
 will follow behind you in a turtle chain.
 
-Your task is to lead the turtles to your safecraft on the
+Your task is to lead the turtles to your Safecraft on the
 surface. Enter the craft, and the turtles in your chain
 will board the craft in turn, each one earning you 100
 points, or credits, or whatever motivates heroic robots.
