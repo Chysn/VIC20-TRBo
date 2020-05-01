@@ -1791,15 +1791,15 @@ ENDTXT: .asc $0d,$0d,$0d,"     MISSION>OVER",$00
 HSTXT:  .asc "  HI?",$00
 
 ; Instructional manual text
-MANTXT: .asc "TRBO>>",$0d,$0d,$0d
+MANTXT: .asc "TRBO?",$0d,$0d,$0d
         .asc "$>YOUR MISSION?",$0d,$0d
         .asc "!>LEAD BABY TURTLES",$0d,$0d
         .asc $5b,">TO SAFECRAFT",$0d,$0d
         .asc "(>AVOID PATROLS",$0d,$0d
         .asc $5f,">TERMINALS GIVE INTEL",$0d
         .asc ".>GEARS FIX DAMAGE",$0d,$0d
-        .asc "  POINT @ FIRE TO DIG?",$0d
-        .asc "  LOSE A .",$0d,$0d,$0d
+        .asc "  POINT @ FIRE TO",$0d,$0d
+        .asc "  DIG? LOSE A .",$0d,$0d,$0d
         .asc ">>AGENT ANZU",$00
         
 ; Partial color map for some characters indexed from $1C
