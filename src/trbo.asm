@@ -1047,11 +1047,11 @@ REV_UD: JSR CUR_RV      ; Show the current CURSOR
         RTS
                 
 ; Reveal the Board
-; Usally a benefit of activating the terminal
+; Usually a benefit of activating the terminal
 REVEAL: LDX #$00
 RL0:    TXA 
-        CMP #$6D
-        BCC RP1         ; Ignore the top part of the screen
+        CMP #$6D        ; Ignore the top part of the screen
+        BCC RP1         ; ,,   
         PHA
         LDY #>SCREEN
         SEC
@@ -1131,22 +1131,22 @@ DIG_R:  PLA
         RTS     
 
 ; Found the Terminal        
-FNDTER: LDA #CH_SPC
-        STA UNDER       ; Goes away after use
-        LDA #FX_TER
-        JSR SOUND       ; Launch the terminal sound
+FNDTER: LDA #CH_SPC     ; Goes away after use
+        STA UNDER       ; ,,   
+        LDA #FX_TER     ; Launch the terminal sound
+        JSR SOUND       ; ,,
         JSR REVEAL      ; Reveal the board
-        LDA #$00
-        STA HUNTER      ; Quiesce the patrols
-        LDA #$08
-        STA TEMPO
-        LDA #PT_TER
-        JSR USCORE
+        LDA #$00        ; Quiesce the patrols
+        STA HUNTER      ; ,,  
+        LDA #$08        ; Bring the tempo to normal
+        STA TEMPO       ; ,,
+        LDA #PT_TER     ; Add to the score
+        JSR USCORE      ; ,,
         RTS 
 
 ; Found a Health Boost
-FNDHLT: LDA #CH_SPC
-        STA UNDER       ; Goes away after use
+FNDHLT: LDA #CH_SPC     ; Goes away after use
+        STA UNDER       ; ,,   
         LDA HEALTH
         CMP #$08        ; Already maxed out
         BCS HLT_R       ; ,,
@@ -1154,15 +1154,15 @@ FNDHLT: LDA #CH_SPC
         JSR SHOWHL      ; ,,
 HLT_R:  LDA #FX_HLT     ; Launch the bonus sound
         JSR SOUND       ; ,,
-        LDA #PT_HLT
-        JSR USCORE
+        LDA #PT_HLT     ; Add to the score
+        JSR USCORE      ; ,,
         RTS
         
 ; Hunt
 ; All patrols enter Hunter mode, which causes them to shoot
 ; turtles on sight. Also, the music gets faster.
 HUNT:   LDA #$07
-        STA HUNTER
+        STA HUNTER      ; Only needs to be non-zero 
         STA TEMPO
         RTS
         
@@ -1378,13 +1378,6 @@ DAMAGE: LDA HEALTH
         JSR MUSIC       ;   ,,
 DAMA_R: RTS
 
-; Place Player        
-PLPLR:  LDA PLAYER
-        LDY PLR_H
-        LDX #CH_PLR
-        SEC
-        JMP PLACE
-        
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MAZE SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1531,12 +1524,14 @@ INITLV: JSR CLSR
         STA PATRLS      ; Initialize patrol table data
         JSR USCORE      ; Display current score
         JSR SHOWHL      ; Display current health
-        JSR MAZE
+        JSR MAZE        ; Create and draw the maze and ship
         LDA #$5A        ; Position the player at the top
-        STA PLAYER      ;   of the maze.
-        LDY #>SCREEN
-        STY PLR_H
-        JSR PLPLR       ; Place the player
+        STA PLAYER      ;   of the maze, and then place
+        LDY #>SCREEN    ;   the player
+        STY PLR_H       ;   ,,
+        LDX #CH_PLR     ;   ,,
+        SEC             ;   ,,
+        JSR PLACE       ;   ,,
         LDA #CH_SPC     ; Start with a space under player
         STA UNDER       ; ,,
         LDA GLEVEL      ; Patrols start in Hunter mode after
@@ -1619,11 +1614,11 @@ SETHW:  LDA TIME_L      ; Seed random number generator
 ; Preparations
 ;     X is the character
 ;     Y is the number of that character to put in the maze        
-POPULA: TYA
-        PHA
-        TXA
-        PHA
-        LDA #$27
+POPULA: TYA             ; X & Y are put on the stack for use
+        PHA             ;   later in this routine, not because
+        TXA             ;   they're expected to be preserved,
+        PHA             ;   in case you wonder in the future
+        LDA #$27        
         STA DATA_L
         LDA #>SCREEN
         STA DATA_H
@@ -1800,13 +1795,14 @@ MANTXT: .asc "TRBO?",$0d,$0d,$0d
         .asc "!>LEAD BABY TURTLES",$0d,$0d
         .asc $5b,">TO SAFETY",$0d,$0d
         .asc "(>AVOID THE PATROLS",$0d,$0d
+        .asc $5f,">TERMINALS GIVE INTEL",$0d
         .asc ".>GEARS FIX DAMAGE",$0d,$0d
-        .asc "  FIRE TO DIG COSTS .",$0d,$0d
-        .asc "@>TERMINALS GIVE INTEL",$0d,$0d
-        .asc "  >>AGENT ANZU",$00
+        .asc "POINT @ FIRE @ PAY .",$0d
+        .asc "  TO DIG",$0d,$0d,$0d
+        .asc "  >AGENT ANZU",$00
         
 ; Partial color map for some characters indexed from $1C
-COLMAP: .byte $02,$02,$ff,$ff,$00,$05,$05,$05
+COLMAP: .byte $02,$02,$01,$01,$00,$05,$05,$05
         .byte $07,$07,$07,$03,$03,$03,$0F,$04
         .byte $09,$02,$06,$02
         
@@ -1847,7 +1843,7 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
 ; a reliable method as long as you don't add anything AFTER this
 ; character data.
 ;
-CHDATA: .byte $00,$00,$ff,$c3,$ff,$3c,$c3,$c3 ; SC Terminal
+CHDATA: .byte $fc,$80,$84,$fe,$c4,$c4,$fc,$00 ; &
         .byte $fe,$02,$02,$fe,$86,$86,$fe,$00 ; A
         .byte $fc,$84,$84,$fe,$c2,$c2,$fe,$00 ; B
         .byte $fe,$80,$80,$c0,$c0,$c0,$fe,$00 ; C
@@ -1878,7 +1874,7 @@ CHDATA: .byte $00,$00,$ff,$c3,$ff,$3c,$c3,$c3 ; SC Terminal
         .byte $83,$c0,$80,$c3,$21,$11,$c3,$00 ; Broken Wall V
         .byte $ef,$c4,$08,$00,$02,$11,$dd,$00 ; Broken Wall H
         .byte $00,$00,$00,$08,$d2,$d7,$f7,$da ; Destroyed TRBo
-        .byte $00,$00,$00,$00,$00,$00,$00,$00 ; unused
+        .byte $00,$00,$ff,$c3,$ff,$3c,$c3,$c3 ; SC Terminal
         .byte $00,$00,$00,$00,$00,$00,$00,$00 ; Space
         .byte $00,$00,$30,$7b,$7b,$fc,$48,$6c ; Turtle R
         .byte $00,$00,$0c,$de,$de,$3f,$12,$36 ; Turtle L
