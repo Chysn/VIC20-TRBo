@@ -323,7 +323,7 @@ PL_MV:  LDY #$00        ; Initialize the direction block; it
         STY DIRBLK      ;   tells which direction was chosen,
                         ;   and also which way we shouldn't
                         ;   look for turtles in the turtle
-                        ;   chain
+                        ;   train
         LDA (PLAYER),Y
         TAX             ; Set current player character
         LDA JOYDIR      ; Read the joystick and
@@ -418,14 +418,14 @@ PL_PL:  PLA             ; Place the player
         STA PLR_H       ; ,,
         PLA             ; Put the previous position into 
         STA CURSOR      ;   CURSOR so that we can look around
-        PLA             ;   for a turtle chain
+        PLA             ;   for a turtle train
         STA CUR_H       ; ,,
         LDY #$00        ; If there's a turtle in the previous
-        LDA (CURSOR),Y  ;   position, then a turtle chain can't
+        LDA (CURSOR),Y  ;   position, then a turtle train can't
         JSR IS_TUR      ;   be started, or else that turle will
         BEQ MV_R        ;   be destroyed. Check for all three
                         ;   turtle characters.
-        JSR TURCHN      ; Recursively find turtles for a chain
+        JSR TURTRN      ; Recursively find turtles for a train
 MV_R:   JSR EXPLOR      ; Explore surroundings
         RTS
        
@@ -442,12 +442,12 @@ NPC_MV: LDA SCREEN+$5A  ; First, look for a turtle near the
         LDA #PT_RES     ;   (4) Adding to the score
         JSR USCORE      ;   ,,
         LDA #$5A        ; Set the CURSOR to pull in
-        STA CURSOR      ;   additional turtles in the chain
+        STA CURSOR      ;   additional turtles in the train
         LDA #>SCREEN    ;   ,,
         STA CUR_H       ;   ,,
         LDA #LEFT
         STA DIRBLK
-        JSR TURCHN
+        JSR TURTRN
 MVPATS: LDX PATRLS      ; Move each patrol
 FORPAT: DEX             ; Patrols are zero-indexed
         JSR PAT_AI      ; Call patrol AI routine
@@ -455,11 +455,11 @@ FORPAT: DEX             ; Patrols are zero-indexed
         BNE FORPAT
         RTS
         
-; Turtle Chain! 
+; Turtle Train! 
 ; Look around the position in CURSOR for a turtle. 
 ; If there's a turtle there, move it, then recursively call
-; TURCHN to keep the chain going.
-TURCHN: JSR SDATA       ; DATA will contain the original
+; TURTRN to keep the train going.
+TURTRN: JSR SDATA       ; DATA will contain the original
                         ;   position, while the CURSOR
                         ;   may be moved
 LOOK_U: LDY DIRBLK      ; Get the directional block, to avoid
@@ -519,13 +519,13 @@ LOOK_L: LDY DIRBLK
         LDX #CH_TUR     ; Pulling a turtle from the left, so
                         ;   use the right-facing turtle
 
-; To move a turtle in the chain, a turtle will be placed in
+; To move a turtle in the train, a turtle will be placed in
 ; the DATA location, with the movement graphic, as set
 ; above in X. Then, the current position (DATA) needs to be 
 ; cleared out. It'll be cleared with either a space, or a 
 ; ladder, depending on the current graphic at the DATA 
 ; location.  Then, recursively call TURCH to continue the
-; chain.
+; train.
 MOVETU: LDY #$00
         LDA (CURSOR),Y  ; What turtle is there now?
         PHA
@@ -546,7 +546,7 @@ PL_SL : LDA CURSOR      ; Place the space or ladder
         LDY CUR_H       ; ,,
         SEC             ; ,,
         JSR PLACE       ; ,,
-        JMP TURCHN
+        JMP TURTRN
 CHN_R:  RTS
         
 ; Patrol AI
@@ -985,6 +985,7 @@ SCDRAW: JSR HOME        ; Draw the level indicator and
         LDA #$00        ;   HSCORE, below.
         JSR PRTFIX      ;   ,,
         LDA #CH_SPC     ;   ,,
+        JSR CHROUT      ;   ,,
         JSR CHROUT      ;   ,,
         LDX SCORE       ;   ,,
         LDA SCOR_H      ;   ,,
@@ -1785,7 +1786,7 @@ INTRO:  .asc "TRBO?>TURTLE>RESCUEBOT"
         .asc "   BY>JASON>JUSTIAN",$0d,$0d
         .asc "    FIRE>TO>START",$00
         
-ENDTXT: .asc $0d,$0d,$0d,"   ' MISSION>OVER (",$00
+ENDTXT: .asc $0d,$0d,$0d,"     MISSION>OVER",$00
 
 HSTXT:  .asc "  HI?",$00
 
@@ -1799,7 +1800,7 @@ MANTXT: .asc "TRBO?",$0d,$0d,$0d
         .asc ".>GEARS FIX DAMAGE",$0d,$0d
         .asc "POINT @ FIRE @ PAY .",$0d
         .asc "  TO DIG",$0d,$0d,$0d
-        .asc "  >AGENT ANZU",$00
+        .asc ">>AGENT ANZU",$00
         
 ; Partial color map for some characters indexed from $1C
 COLMAP: .byte $02,$02,$01,$01,$00,$05,$05,$05

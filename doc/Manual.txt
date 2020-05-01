@@ -1,0 +1,93 @@
+TRBo: Turtle RescueBot
+By Jason Justian
+Play Guide
+
+TLDR:
+
+* When you find a turtle, it will follow you. Lead it to the
+  surface and aboard your safecraft for 100 points.
+
+* A terminal will reveal the lair. 250 points.
+
+* Dig a hole by moving in a direction and pressing the fire
+  button. This will cost one of your gears.
+
+* Patrols will fire at you. Don't let them see you. Getting
+  hit with a beam will take one gear.
+
+* You may find gears in the lair. These add one gear, up to
+  a maximum of 8. 25 points.
+  
+* Once all the turtles in the lair are rescued or killed,
+  you advance to the next lair by boarding your craft.
+  
+* Your mission is over when your last gear has been lost.
+  
+----------------------------------------------------------------
+
+MORE INFO:
+
+Baby Turtles have been kidnapped! And your boss, Agent Anzu,
+has assigned you, TRBo, to rescue as many as possible.
+
+Why have they been kidnapped? What nefarious plot is afoot?
+Such questions are way beyond your pay grade, my friend.
+
+Use the joystick to explore the underground lairs where the
+baby turtles are being held. If you encounter a turtle,
+it will follow you around. As you find more turtles, they
+will follow behind you in a turtle chain.
+
+Your task is to lead the turtles to your safecraft on the
+surface. Enter the craft, and the turtles in your chain
+will board the craft in turn, each one earning you 100
+points, or credits, or whatever motivates heroic robots.
+
+You do not know the floorplan of the maze going in. You
+must explore it. Each lair (at least for a while) contains
+one computer terminal. If you find the terminal, it will give
+you the floorplan of the entire lair, as well as the locations
+of the baby turtles and gears.
+
+You start the game in good condition, with eight gears. Each
+gear you find in the lair is worth 25 points. You cannot have
+more than eight gears at any time.
+
+You can expend one of these gears to dig a hole in the lair,
+which you may travel through. To dig, push the fire button
+while moving the joystick in the direction you want to dig. You
+can dig if you have more than one gear.
+
+TIP: Pay attention to where the ladders are at the surface. 
+If there are no ladders near your craft, you may have to dig
+an escape route early.
+
+Seems easy so far!
+
+However, somebody took these turtles for a reason, at great
+expense, and so there are patrols to guard them. These patrols
+are equipped with a powerful beam that can damage you. If you
+enter a patrol's line of sight, it can hit you from across any
+room. If there's a poor turtle standing in the way, it'll
+get hit instead of you, and turtles aren't very hardy.
+
+The patrols will usually just hang around turtles to guard them.
+But once they're alterted to your presence, they'll become
+hunters, and they'll shoot any turtle they see. So stay out of
+sight! If you find a terminal while the patrols are hunters,
+the terminal will cancel the alert and the patrols will forget
+that they saw you.
+
+TIP: Patrols cannot move or shoot through holes you dig, until
+you lead a turtle through that hole. Once the patrols see a
+turtle move through the hole, it becomes fair game!
+
+Once all of the turtles in the lair are either rescued or
+killed, board your craft to advance to the next lair. You'll
+get a bonus of 50 points for each remaining gear.
+
+TIP: There are way more turtles around than gears. Even though
+your duty is to rescue these turtles, sometimes they make pretty
+good shields.
+
+The game is over when you run out of gears.
