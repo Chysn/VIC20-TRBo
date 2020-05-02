@@ -78,8 +78,8 @@ sight! If you find a terminal while the patrols are hunters,
 the terminal will cancel the alert and the patrols will forget
 that they saw you.
 
-TIP: Patrols cannot move or shoot through holes you dig, until
-you lead a turtle through that hole. Once the patrols see a
+TIP: Patrols cannot move through holes you dig, until you
+lead a turtle through that hole. Once the patrols see a
 turtle move through the hole, it becomes fair game!
 
 Once all of the turtles in the lair are either rescued or

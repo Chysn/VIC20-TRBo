@@ -132,8 +132,8 @@ FXCDRS = $0351          ; Countdown reset value
 REMAIN = $0344          ; Remaining cells for the current level
 
 ; Game Play Memory
-FRCD   = $05            ; Frame countdown
-GLEVEL = $0345          ; Game level
+FRCD   = $00            ; Frame countdown
+GLEVEL = $05            ; Game level
 SCORE  = $0346          ; \ Player score
 SCOR_H = $0347          ; /
 UNDER  = $0348          ; Character underneath player
@@ -142,7 +142,7 @@ JOYDIR = $F9            ; Joystick direction capture
 DIRBLK = $FA            ; Block direction (UP,RIGHT, RIGHT)
 TURTLS = $FB            ; Turtle count for the level
 PATRLS = $FC            ; Patrol count for the level
-HUNTER = $0352          ; Hunters will attack turtles
+HUNTER = $9C            ; Hunters will attack turtles
 FIRED  = $0353          ; Any patrol fired this round
 DIDFIR = $0354          ; Current patrol fired this round
 HEALTH = $FD            ; Player health
@@ -436,7 +436,7 @@ NPC_MV: LDA SCREEN+$5A  ; First, look for a turtle near the
         BNE MVPATS      ;   rescued. Rescue involves:
         LDA #CH_SPC     ;   (1) Removing the turtle
         STA SCREEN+$5A  ;   ,,
-        DEC TURTLS      ;   (2) Decrementing the turtle count
+        JSR DECTUR      ;   (2) Decrementing the turtle count
         LDA #FX_RES     ;   (3) Launching a rescue sound
         JSR SOUND       ;   ,,
         LDA #PT_RES     ;   (4) Adding to the score
@@ -669,10 +669,9 @@ OFFLAD: LDA PAT_BF,X    ; If the Bump flag is set, then consider
 CHKPT:  LDA PAT_CP,X    ; Has the patrol reached its checkpoint?
         CMP CURSOR      ;    ,,
         BNE OFF_D       ;    ,,
-        LDA #$10        ; At the checkpoint, the patrol has a
-        JSR PSRAND      ;   25% chance of taking the ladder
-        CPY #$0C        ;   and reversing the direction of
-        BCC OFF_D       ;   travel
+        LDA #$40        ; At the checkpoint, the patrol has a
+        CMP THEME       ;   25% chance of taking the ladder
+        BCC OFF_D       ;   and reversing direction of travel
         JSR REV_TR      ;   ,,
         STA PAT_DI,X    ;   ,, (direction comes from REV_TR)
         JMP ONLAD       ;   ,,
@@ -732,10 +731,9 @@ BUMP_L: LDA #LEFT
 MVOFFL: LDA DATA_L      ; Set the checkpoint  
         STA PAT_CP,X    ;   ,,
         LDY #LEFT       ; Choose left or right with equal
-        LDA THEME       ;   probability, based on the musical
-        CMP #$80        ;   theme register
-        BCC SETDIR      ;   ,,
-        LDY #RIGHT      ;   ,,
+        CPY THEME       ;   probability, based on the musical
+        BCC SETDIR      ;   theme register (LEFT is nice and
+        LDY #RIGHT      ;   $80)
 SETDIR: LDA #$00        ; Reset the Bump flag for off-ladder
         STA PAT_BF,X    ;   movement
         TYA             ; Set the chosen direction, which will
@@ -1157,6 +1155,9 @@ HLT_R:  LDA #FX_HLT     ; Launch the bonus sound
         JSR SOUND       ; ,,
         LDA #PT_HLT     ; Add to the score
         JSR USCORE      ; ,,
+        LDA GLEVEL      ; Reset the music to the level
+        AND #$0F        ;   theme, in case health was
+        JSR MUSIC       ;   previously at 1
         RTS
         
 ; Hunt
@@ -1166,6 +1167,14 @@ HUNT:   LDA #$07
         STA HUNTER      ; Only needs to be non-zero 
         STA TEMPO
         RTS
+       
+; Decrement Turtle Count
+; If it hits 0, change the musical theme to notify the player        
+DECTUR: DEC TURTLS
+        BNE DECT_R
+        LDA #$09        ; The "turtles are gone" alert
+        JSR MUSIC
+DECT_R: RTS
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; MUSIC AND EFFECT PLAYER SUBROUTINES
@@ -1361,7 +1370,7 @@ OTHER:  PHA
         BEQ NXBEAM
 HITTUR: JSR IS_TUR      ; Is it a turtle?
         BNE LOS_R
-        DEC TURTLS      ; A turtle was killed; reduce the count
+        JSR DECTUR      ; A turtle was killed; reduce the count
         JMP LOS_R       ; Anything else stops the beam
       
 ; Damage!
@@ -1460,9 +1469,9 @@ DRAW:   JSR DRCORR      ; Draw the corridor
 ; Preparations
 ;     X is the level number
 ;     Y is the length of the corridor
-DRCORR: LDA CURSOR      ; Save the screen position
+DRCORR: LDA CUR_H      ; Save the screen position
         PHA
-        LDA CUR_H 
+        LDA CURSOR 
         PHA
         TYA             ; Save the Y register for the caller
         PHA
@@ -1510,9 +1519,9 @@ CKNOCK: LDA #CH_LAD     ; Knock out ceiling with a ladder
 RESET:  PLA             ; Start restoring things for return
         TAY             ; ,,
         PLA             ; ,,
-        STA CUR_H       ; ,,
-        PLA             ; ,,
         STA CURSOR      ; ,,
+        PLA             ; ,,
+        STA CUR_H       ; ,,
         RTS   
         
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1634,9 +1643,9 @@ PL1:    LDA #$2C        ; Drop down 2Y lines in the lair
         JSR DATAAD
 RY:     DEY
         BPL PL1
-        LDA #$0B        ; Get a random X-axis
+        LDA #$07        ; Get a random X-axis
         JSR PSRAND
-PL2:    LDA #$02        ; Move over 2Y lines in the lair
+PL2:    LDA #$03        ; Move over 3Y lines in the lair
         JSR DATAAD
 RX:     DEY
         BPL PL2
@@ -1697,7 +1706,7 @@ ADDPAT: LDA PATRLS
         STA PATROL,X    ; ,,
         LDA DATA_H      ; Set location high
         STA PATL_H,X    ; ,,
-        LDA #$0F        ; Set recharge time to 15 frames
+        LDA #$0A        ; Set recharge time to 10 frames
         STA PAT_BR,X    ; ,,
         LDA #LEFT       ; Set direction left
         STA PAT_DI,X    ; ,,
@@ -1743,7 +1752,7 @@ DADD_R: RTS
 ;;;; UTILITY SUBROUTINES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Random Number
-; Gets a random number between 1 and 16. A contains the
+; Gets a random number between 1 and 8. A contains the
 ; maximum value. The random number will be in Y.
 PSRAND: STA SCRPAD
         TXA
@@ -1751,11 +1760,10 @@ PSRAND: STA SCRPAD
         DEC SCRPAD
 AGAIN:  JSR BASRND
         LDA RNDNUM
-        AND #$0F
+        AND #$07
         CMP SCRPAD
         BCC E_RAND      ; Get another random number if this one
-        BEQ E_RAND      ; is greater than the maximum
-        BNE AGAIN
+        BNE AGAIN       ; is greater than the maximum
 E_RAND: TAY
         INY
         PLA
@@ -1818,8 +1826,9 @@ THEMES: .word $5412
         .word $6446
         .word $c633
         .word $2919
-        .word $2fff
+        .word $3223
         .word $3333     ; Low health alarm tone
+        .word $2fff     ; Turtles are gone alarm done
 
 ; Sound effects for the sound effects player
 ; Each effect has three parameters
