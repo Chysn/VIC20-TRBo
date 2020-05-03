@@ -1215,16 +1215,13 @@ NXNOTE: LDA #$01
         BNE NOTE_R
         LDA TEMPO
         STA MUCD
-        LDX #$00        ; X is the carry bit for THM_H
-        ASL THEME       ; Shift the low byte, which may set C
-        ROL THM_H       ; Rotate the high byte, including C
-        BCC NROLL       ; Was the high bit of the high byte set?
-        LDX #$01        ; If so, add it back to the beginning
-NROLL:  TXA
-        ORA THEME 
-        STA THEME 
-        ORA #$80
-        STA VOICEM
+        LDA #$00        ; Shift the register left
+        ASL THEME       ; ,,
+        ROL THM_H       ; ,,
+        ADC THEME       ; ,,
+        STA THEME       ; ,,
+        ORA #$80        ; Gate the middle voice
+        STA VOICEM      ; ,,
         LDA FADE        ; Fade is a volume override. If fade is
         BEQ VOLREG      ;   set, it will decrease every note,
         DEC FADE        ;   and the music will stop when it
@@ -1246,15 +1243,12 @@ NXFX:   LDA FXLEN       ; Has the sound been launched?
         BNE FX_R
         LDA FXCDRS      ; Reset the countdown
         STA FXCD        ; ,,
-        LDX #$00
-        ROL REG_FX      ; Rotate the register left
-        BCC EROLL
-        LDX #$01
-EROLL:  TXA
-        ORA REG_FX
-        STA REG_FX
-        ORA #$80
-ENDFX:  STA VOICEH
+        LDA #$00        ; Rotate the register left
+        ROL REG_FX      ; ,,
+        ADC REG_FX      ; ,,
+        STA REG_FX      ; ,,
+        ORA #$80        ; Gate the high voice
+ENDFX:  STA VOICEH      ; ,,
 FX_R:   RTS      
         
 ; Launch Sound Effect
@@ -1800,15 +1794,15 @@ HSTXT:  .asc "  HI?",$00
 
 ; Instructional manual text
 MANTXT: .asc "TRBO?",$0d,$0d,$0d
-        .asc "$>YOUR MISSION?",$0d,$0d
-        .asc "!>LEAD BABY TURTLES",$0d,$0d
-        .asc $5b,">TO SAFECRAFT",$0d,$0d
-        .asc "(>AVOID PATROLS",$0d,$0d
+        .asc $9e,"$",$05,">YOUR MISSION?",$0d,$0d
+        .asc $1e,"!",$05,">LEAD BABY TURTLES",$0d,$0d
+        .asc $9e,$5b,$05,">TO SAFECRAFT",$0d,$0d
+        .asc $9f,"(",$05,">AVOID PATROLS",$0d,$0d
         .asc $5f,">TERMINALS GIVE INTEL",$0d
-        .asc ".>GEARS FIX DAMAGE",$0d,$0d
-        .asc "  POINT @ FIRE TO",$0d,$0d
-        .asc "  DIG? LOSE A .",$0d,$0d,$0d
-        .asc ">>AGENT ANZU",$00
+        .asc $1f,".",$05,">GEARS FIX DAMAGE",$0d,$0d
+        .asc "  POINT @ FIRE TO",$0d
+        .asc "  DIG? LOSE A ",$1f,".",$05,$0d,$0d,$0d
+        .asc ">AGENT ANZU",$00
         
 ; Partial color map for some characters indexed from $1C
 COLMAP: .byte $02,$02,$01,$01,$00,$05,$05,$05
