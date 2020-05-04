@@ -2,14 +2,12 @@
 ;
 ;                    TRBo: Turtle RescueBot
 ;                    (c)2020, Jason Justian
-;                  Release 1 - April 26, 2020
+;                  
+; Beta Release - April 26, 2020
+; Final Release - May 3, 2020
 ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;; LICENSE
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
 ; This software is released under the Creative Commons
 ; Attribution-NonCommercial 4.0 International
 ; License. The license should be included with this file.
@@ -22,9 +20,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; This is the tokenization of the following BASIC program, which
 ; runs this game
-;     1 SYS4110
+;     42 SYS4110
 * = $1001
-BASIC:  .byte $0b,$04,$01,$00,$9e,$34,$31,$31
+BASIC:  .byte $0b,$04,$2a,$00,$9e,$34,$31,$31
         .byte $30,$00,$00,$00,$00
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -261,7 +259,7 @@ LVLUP:  LDA PLAYER      ; Is the player home?
         STA VOLUME      ;   not too high
         LDA HEALTH      ; Store health for bonus countdown
         PHA             ; ,,
-BONUS:  LDA FX_BON      ; Launch the bonus sound effect
+BONUS:  LDA #FX_BON     ; Launch the bonus sound effect
         JSR SOUND       ;   for each remaining health gear
         LDA #PT_BON     ; Increase the score for each gear
         JSR USCORE      ; ,,
@@ -269,7 +267,7 @@ BONUS:  LDA FX_BON      ; Launch the bonus sound effect
         LDY #$00        ;   gear to white
         STA (DATA_L),Y  ;   ,,
         INC DATA_L      ;   ,,
-        LDA #$08        ; A delay for each health count so that
+        LDA #$06        ; A delay for each health count so that
         JSR DELAY       ;   ,, the player may count along!
         DEC HEALTH      ; Do this BONUS loop until the health
         BNE BONUS       ;   has been counted
@@ -1244,7 +1242,7 @@ NXFX:   LDA FXLEN       ; Has the sound been launched?
         LDA FXCDRS      ; Reset the countdown
         STA FXCD        ; ,,
         LDA #$00        ; Rotate the register left
-        ROL REG_FX      ; ,,
+        ASL REG_FX      ; ,,
         ADC REG_FX      ; ,,
         STA REG_FX      ; ,,
         ORA #$80        ; Gate the high voice
@@ -1373,7 +1371,7 @@ DAMAGE: LDA HEALTH
         BEQ DAMA_R
         DEC HEALTH
         JSR SHOWHL      ; Show health
-        LDA FX_DMG
+        LDA #FX_DMG
         JSR SOUND
         LDA #$01        ; If health gets to 1, change
         CMP HEALTH      ;   the theme to an alarm tone
@@ -1830,13 +1828,13 @@ THEMES: .word $5412
 ;   (2) High nybble of second byte is the length in jiffies x 16
 ;   (3) Low nybble of second byte is refresh rate in jiffies
 FXTYPE: .byte $2f,$34                       ; Start the Game
-        .byte $55,$63                       ; Fire Sound
+        .byte $b8,$12                       ; Fire Sound
         .byte $03,$24                       ; Turtle rescue
-        .byte $23,$62                       ; Terminal Activated
+        .byte $d1,$45                       ; Terminal Activated
         .byte $4a,$41                       ; Dig
-        .byte $fb,$72                       ; Damaged
-        .byte $44,$1F                       ; Bonus
-        .byte $2f,$64                       ; Found Health
+        .byte $31,$21                       ; Damaged
+        .byte $2f,$12                       ; Bonus
+        .byte $2f,$66                       ; Found Health
 
 ; The character set must start at $1C00. If you change anything
 ; anywhere, you must account for this. The easiest way is to use
