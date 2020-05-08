@@ -1552,7 +1552,7 @@ POPTUR: LDA GLEVEL      ; Populate some turtles
         ADC #$02        ; ,,
         CMP #MAXTUR     ; ,, With a limit
         BCC PPT1        ; ,,
-        LDA #$0C        ; ,,
+        LDA #MAXTUR     ; ,,
 PPT1:   TAY             ; ,,
         STY TURTLS      ; ,,
         LDX #CH_TUR     ; ,,
@@ -1835,7 +1835,7 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
         .byte $4a,$41                       ; Dig
         .byte $31,$21                       ; Damaged
         .byte $2f,$12                       ; Bonus
-        .byte $2b,$36                       ; Found Health
+        .byte $2f,$35                       ; Found Health
 
 ; The character set must start at $1C00. If you change anything
 ; anywhere, you must account for this. The easiest way is to use
