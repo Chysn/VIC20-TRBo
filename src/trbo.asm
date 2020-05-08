@@ -5,6 +5,7 @@
 ;                  
 ; Beta Release - April 26, 2020
 ; Final Release - May 3, 2020
+; Director's Cut - May 7, 2020
 ; Assembled with XA
 ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
