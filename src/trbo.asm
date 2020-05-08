@@ -5,6 +5,7 @@
 ;                  
 ; Beta Release - April 26, 2020
 ; Final Release - May 3, 2020
+; Assembled with XA
 ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;
@@ -54,13 +55,13 @@ PRTSTR = $CB1E          ; Print from data (Y,A)
 CASECT = $0291          ; Disable Commodore case
 PRTFIX = $DDCD          ; Decimal display routine
 CHROUT = $FFD2          ; Output one character
-TIME_L  = $A2           ; Jiffy counter low
-TIME_M  = $A1           ; Jiffy counter middle
+TIME_L = $A2            ; Jiffy counter low
+TIME_M = $A1            ; Jiffy counter middle
 
 ; Constants - Game Configuration
 ST_HLT = $08            ; Initial health level per game
-MAXPAT = $06            ; Maximum number of patrols per level
-MAXTUR = $0C            ; Maximum number of turtles per level
+MAXPAT = $05            ; Maximum number of patrols per level
+MAXTUR = $08            ; Maximum number of turtles per level
 CORLIM = $08            ; Maximum corridor size
 SPEED  = $0E            ; Game speed, in jiffies of delay
 SCRCOM = $08            ; Maze color
@@ -1834,7 +1835,7 @@ FXTYPE: .byte $2f,$34                       ; Start the Game
         .byte $4a,$41                       ; Dig
         .byte $31,$21                       ; Damaged
         .byte $2f,$12                       ; Bonus
-        .byte $2f,$66                       ; Found Health
+        .byte $2b,$36                       ; Found Health
 
 ; The character set must start at $1C00. If you change anything
 ; anywhere, you must account for this. The easiest way is to use
