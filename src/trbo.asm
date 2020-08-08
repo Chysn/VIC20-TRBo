@@ -969,7 +969,7 @@ UHSC:   LDA HISC_H      ; Is the last score greater than
         BCC NEWHS       ;   ,,
         BNE SCDRAW      ;   ,,
         LDA SCORE       ;   ,,
-        CMP SCOR_H      ;   ,,
+        CMP HISCOR      ;   ,,
         BCC SCDRAW      ;   ,,
 NEWHS:  LDA SCORE       ; A new high score has been
         STA HISCOR      ; achived; update high score
